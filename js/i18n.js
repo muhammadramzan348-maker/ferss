@@ -1,0 +1,83 @@
+// English / Urdu strings. Each row: [key, English, Urdu]. Missing keys fall back to English, then the key itself.
+import { UNITS } from './core.js';
+const ROWS = [
+  // navigation & general
+  ['home', 'Home', 'ہوم'], ['sell', 'Sell', 'فروخت'], ['sales', 'Sales', 'فروخت'], ['items', 'Items', 'سامان'], ['customers', 'Customers', 'گاہک'],
+  ['suppliers', 'Suppliers', 'سپلائرز'], ['rentals', 'Rentals', 'کرایہ'], ['expenses', 'Expenses', 'اخراجات'], ['reports', 'Reports', 'رپورٹس'], ['settings', 'Settings', 'سیٹنگز'],
+  ['more', 'More', 'مزید'], ['purchases', 'Purchases', 'خریداری'], ['save', 'Save', 'محفوظ کریں'], ['cancel', 'Cancel', 'منسوخ'], ['edit', 'Edit', 'ترمیم'],
+  ['remove', 'Remove', 'ہٹائیں'], ['search', 'Search', 'تلاش'], ['search_items', 'Search item, code, brand, size…', 'سامان، کوڈ، برانڈ، سائز تلاش کریں…'], ['all', 'All', 'سب'],
+  ['empty', 'Nothing here yet', 'ابھی کچھ نہیں'], ['not_found', 'Not found', 'نہیں ملا'], ['saved', 'Saved', 'محفوظ ہو گیا'], ['invalid', 'Invalid value', 'غلط قدر'],
+  ['confirm', 'Are you sure?', 'کیا آپ کو یقین ہے؟'], ['name', 'Name', 'نام'], ['phone', 'Phone', 'فون'], ['address', 'Address', 'پتہ'], ['note', 'Note', 'نوٹ'],
+  ['amount', 'Amount', 'رقم'], ['account', 'Account', 'اکاؤنٹ'], ['date', 'Date', 'تاریخ'], ['type', 'Type', 'قسم'], ['total', 'Total', 'کل'], ['subtotal', 'Subtotal', 'ذیلی کل'], ['paid', 'Paid', 'ادا شدہ'],
+  ['balance', 'Balance', 'بیلنس'], ['discount', 'Discount', 'رعایت'], ['quantity', 'Quantity', 'مقدار'], ['unit', 'Unit', 'اکائی'], ['price', 'Price', 'قیمت'], ['cost', 'Cost', 'لاگت'],
+  ['profit', 'Profit', 'منافع'], ['item', 'Item', 'آئٹم'], ['reason', 'Reason', 'وجہ'], ['update', 'Update', 'اپڈیٹ'], ['today', 'Today', 'آج'], ['this_month', 'This month', 'اس مہینے'],
+  ['from', 'From', 'سے'], ['to', 'To', 'تک'], ['in', 'In', 'آمد'], ['out', 'Out', 'اخراج'], ['period', 'Period', 'مدت'], ['bills', 'Bills', 'بل'], ['default', 'default', 'ڈیفالٹ'],
+  ['never', 'Never', 'کبھی نہیں'], ['pending', 'Pending', 'باقی'], ['admin_only', 'Admin only', 'صرف ایڈمن'], ['install_app', 'Install the app', 'ایپ انسٹال کریں'],
+  ['install_help', 'Chrome menu → “Add to Home screen” / “Install app”. It then opens like a normal app and works offline.', 'کروم مینو ← «Add to Home screen» / «Install app»۔ پھر یہ عام ایپ کی طرح کھلے گی اور انٹرنیٹ کے بغیر چلے گی۔'],
+  // dashboard
+  ['today_sales', "Today's sales", 'آج کی فروخت'], ['today_profit', "Today's profit", 'آج کا منافع'], ['receivable', 'To receive (khata)', 'وصولی (کھاتہ)'], ['payable', 'To pay (suppliers)', 'ادائیگی (سپلائرز)'],
+  ['low_stock', 'Low stock', 'کم اسٹاک'], ['rentals_out', 'Rentals out', 'کرائے پر گیا'], ['overdue', 'overdue', 'تاخیر'], ['accounts', 'Accounts', 'اکاؤنٹس'],
+  ['quick_actions', 'Quick actions', 'فوری کام'], ['open_estimates', 'open estimates', 'کھلے تخمینے'],
+  ['acc_cash', 'Cash', 'نقد'], ['acc_bank', 'Bank', 'بینک'], ['acc_jazzcash', 'JazzCash', 'جیز کیش'], ['acc_easypaisa', 'EasyPaisa', 'ایزی پیسہ'],
+  // POS
+  ['new_sale', 'New sale', 'نئی فروخت'], ['estimate', 'Estimate', 'تخمینہ'], ['invoice', 'Invoice', 'انوائس'], ['walk_in', 'Walk-in customer', 'نقد گاہک'], ['customer', 'Customer', 'گاہک'],
+  ['retail', 'Retail', 'پرچون'], ['wholesale', 'Wholesale', 'تھوک'], ['stock', 'Stock', 'اسٹاک'], ['cart_empty', 'Tap an item to add it', 'سامان پر ٹیپ کر کے شامل کریں'],
+  ['bill_discount', 'Bill discount', 'بل پر رعایت'], ['payment', 'Payment received', 'وصول شدہ رقم'], ['udhaar', 'Udhaar (credit)', 'ادھار'], ['full_cash', 'Full cash', 'پورا نقد'],
+  ['finalize', 'Finalize bill', 'بل مکمل کریں'], ['save_estimate', 'Save estimate', 'تخمینہ محفوظ کریں'], ['clear', 'Clear', 'صاف کریں'], ['add_customer', 'Add customer', 'گاہک شامل کریں'],
+  ['credit_limit', 'Credit limit', 'ادھار کی حد'], ['by_qty', 'By quantity', 'مقدار سے'], ['by_amount', 'By amount (Rs)', 'رقم سے (روپے)'], ['add_to_cart', 'Add to cart', 'کارٹ میں ڈالیں'],
+  ['enter_amount', 'Enter an amount', 'رقم لکھیں'], ['enter_qty', 'Enter a quantity', 'مقدار لکھیں'], ['continue_anyway', 'Continue anyway?', 'پھر بھی جاری رکھیں؟'],
+  ['bill_saved', 'Bill saved', 'بل محفوظ ہو گیا'], ['estimate_saved', 'Estimate saved', 'تخمینہ محفوظ ہو گیا'], ['thermal_print', 'Print receipt', 'رسید پرنٹ کریں'],
+  ['send_pdf_whatsapp', 'Send PDF on WhatsApp', 'واٹس ایپ پر PDF بھیجیں'], ['print_a4', 'Print A4', 'A4 پرنٹ'], ['send_text_whatsapp', 'Send text on WhatsApp', 'واٹس ایپ پر ٹیکسٹ بھیجیں'],
+  ['print', 'Print', 'پرنٹ'], ['printed', 'Sent to printer', 'پرنٹر کو بھیج دیا'], ['pdf_saved_wa', 'PDF saved. Attach it in WhatsApp.', 'PDF محفوظ ہو گئی۔ واٹس ایپ میں اٹیچ کریں۔'],
+  ['invoice_or_customer', 'Bill no. or customer', 'بل نمبر یا گاہک'], ['tab_bills', 'Bills', 'بل'], ['tab_estimates', 'Estimates', 'تخمینے'], ['tab_cancelled', 'Cancelled', 'منسوخ'],
+  ['convert_to_bill', 'Convert to bill', 'بل میں تبدیل کریں'], ['cancel_bill', 'Cancel bill', 'بل منسوخ کریں'], ['confirm_cancel_bill', 'Cancel this? Stock, cash and khata will be reversed.', 'منسوخ کریں؟ اسٹاک، کیش اور کھاتہ واپس ہو جائے گا۔'],
+  ['balance_due', 'Balance due', 'باقی رقم'], ['khata_balance', 'Khata balance', 'کھاتہ بیلنس'],
+  // items
+  ['add_item', 'Add item', 'سامان شامل کریں'], ['sku', 'Code / SKU', 'کوڈ'], ['barcode', 'Barcode', 'بار کوڈ'], ['category', 'Category', 'زمرہ'], ['brand', 'Brand', 'برانڈ'], ['size', 'Size / spec', 'سائز'],
+  ['base_unit', 'Base unit', 'بنیادی اکائی'], ['sell_unit', 'Selling unit', 'فروخت کی اکائی'], ['other_units', 'Other units', 'دیگر اکائیاں'], ['units_help', 'one per line: unit=factor, e.g. g=1/1000', 'ہر لائن میں: اکائی=فیکٹر، مثلاً g=1/1000'],
+  ['retail_price', 'Retail price', 'پرچون قیمت'], ['wholesale_price', 'Wholesale price', 'تھوک قیمت'], ['min_stock', 'Low-stock level', 'کم اسٹاک کی حد'], ['opening_stock', 'Opening stock', 'ابتدائی اسٹاک'],
+  ['opening_cost', 'Opening stock total cost (Rs)', 'ابتدائی اسٹاک کی کل لاگت'], ['avg_cost', 'Average cost', 'اوسط لاگت'], ['stock_value', 'Stock value', 'اسٹاک کی قیمت'], ['adjust_stock', 'Adjust stock', 'اسٹاک ایڈجسٹ'],
+  ['reset_stock', 'Reset stock to 0', 'اسٹاک صفر کریں'], ['reset_reason', 'Reason for reset?', 'ری سیٹ کی وجہ؟'], ['archive', 'Archive', 'آرکائیو'], ['restore', 'Restore', 'بحال'], ['last_cost', 'Last cost', 'آخری لاگت'],
+  ['qty_base', 'Qty sold', 'فروخت مقدار'],
+  // khata
+  ['they_owe', 'Customer owes you', 'گاہک نے دینے ہیں'], ['you_owe', 'You owe supplier', 'آپ نے دینے ہیں'], ['advance', 'advance', 'ایڈوانس'], ['opening_balance', 'Opening balance', 'ابتدائی بیلنس'],
+  ['receive_payment', 'Receive payment', 'رقم وصول کریں'], ['pay_supplier', 'Pay supplier', 'سپلائر کو ادائیگی'], ['send_reminder', 'WhatsApp reminder', 'واٹس ایپ یاد دہانی'], ['share_statement', 'Share statement', 'اسٹیٹمنٹ بھیجیں'],
+  ['statement', 'Statement', 'اسٹیٹمنٹ'], ['adjust', 'Adjust', 'ایڈجسٹ'], ['increase_balance', 'increases balance', 'بیلنس بڑھائے'], ['decrease_balance', 'decreases balance', 'بیلنس گھٹائے'],
+  ['add_supplier', 'Add supplier', 'سپلائر شامل کریں'], ['new_purchase', 'New purchase', 'نئی خریداری'], ['supplier', 'Supplier', 'سپلائر'], ['supplier_ref', 'Supplier bill no.', 'سپلائر بل نمبر'],
+  ['add_line', 'Add item', 'آئٹم شامل کریں'], ['extra_cost', 'Extra cost (freight etc.)', 'اضافی خرچ (کرایہ وغیرہ)'], ['save_purchase', 'Save purchase', 'خریداری محفوظ کریں'],
+  ['k_sale', 'Sale', 'فروخت'], ['k_payment', 'Payment', 'ادائیگی'], ['k_opening', 'Opening', 'ابتدائی'], ['k_purchase', 'Purchase', 'خریداری'], ['k_rental', 'Rental', 'کرایہ'], ['k_adjust', 'Adjustment', 'ایڈجسٹمنٹ'], ['k_reversal', 'Reversal', 'واپسی'],
+  // rentals
+  ['new_rental', 'New rental', 'نیا کرایہ'], ['rtab_active', 'On rent', 'کرائے پر'], ['rtab_items', 'Rental items', 'کرایہ کا سامان'], ['rtab_history', 'History', 'ریکارڈ'], ['no_active_rentals', 'Nothing is out on rent', 'کوئی چیز کرائے پر نہیں'],
+  ['accrued', 'Charge so far', 'اب تک کا کرایہ'], ['deposit_held', 'Deposit held', 'جمع شدہ ضمانت'], ['deposit', 'Deposit', 'ضمانت'], ['return_items', 'Return items', 'سامان واپس'], ['per_day', 'per day', 'روزانہ'], ['per_hour', 'per hour', 'فی گھنٹہ'],
+  ['available', 'available', 'دستیاب'], ['add_rental_item', 'Add rental item', 'کرایہ کا سامان شامل کریں'], ['total_qty', 'Total quantity owned', 'کل تعداد'], ['rate_type', 'Charged', 'کرایہ کی قسم'], ['rate', 'Rate (Rs)', 'ریٹ (روپے)'],
+  ['customer_name', 'Customer name', 'گاہک کا نام'], ['link_khata', 'Link to khata customer (optional)', 'کھاتہ گاہک سے جوڑیں (اختیاری)'], ['security_deposit', 'Security deposit', 'سیکیورٹی ڈپازٹ'], ['id_kept', 'ID / item kept as security', 'ضمانت میں رکھا شناختی کارڈ/چیز'],
+  ['expected_return', 'Expected return', 'متوقع واپسی'], ['give_on_rent', 'Give on rent', 'کرائے پر دیں'], ['add_rental_first', 'Add rental items first (Rentals → Rental items).', 'پہلے کرایہ کا سامان شامل کریں۔'],
+  ['charge', 'Rental charge', 'کرایہ'], ['to_collect', 'To collect', 'وصول کرنا ہے'], ['refund', 'Refund', 'واپسی رقم'], ['refund_from', 'Refund deposit from', 'ضمانت کہاں سے واپس'],
+  // expenses & reports
+  ['add_expense', 'Add expense', 'خرچ شامل کریں'], ['other_category', 'Other category (type to override)', 'دوسرا زمرہ'], ['recent_expenses', 'Recent expenses', 'حالیہ اخراجات'], ['transfer', 'Transfer', 'ٹرانسفر'],
+  ['owner_money', 'Owner money', 'مالک کی رقم'], ['owner_in', 'Owner put in', 'مالک نے جمع کرائی'], ['owner_out', 'Owner took out', 'مالک نے نکلوائی'],
+  ['exp_Rent', 'Rent', 'کرایہ دکان'], ['exp_Electricity', 'Electricity', 'بجلی'], ['exp_Salaries', 'Salaries', 'تنخواہیں'], ['exp_Tea & Food', 'Tea & food', 'چائے اور کھانا'], ['exp_Transport', 'Transport', 'ٹرانسپورٹ'], ['exp_Repairs', 'Repairs', 'مرمت'], ['exp_Other', 'Other', 'متفرق'],
+  ['rep_sales', 'Sales', 'فروخت'], ['rep_items', 'Item profit', 'آئٹم منافع'], ['rep_profit', 'Profit & loss', 'نفع نقصان'], ['rep_expenses', 'Expenses', 'اخراجات'], ['rep_customers', 'Customer khata', 'گاہک کھاتہ'],
+  ['rep_suppliers', 'Supplier payables', 'سپلائر ادائیگیاں'], ['rep_cashbook', 'Cash book', 'کیش بک'], ['rep_lowstock', 'Low stock', 'کم اسٹاک'], ['rep_stockvalue', 'Stock value', 'اسٹاک ویلیو'],
+  ['rp_day', 'Daily', 'روزانہ'], ['rp_week', 'Weekly', 'ہفتہ وار'], ['rp_month', 'Monthly', 'ماہانہ'], ['revenue', 'Revenue', 'آمدنی'], ['margin', 'Margin', 'مارجن'],
+  ['sales_revenue', 'Sales', 'فروخت'], ['cost_of_goods', 'Cost of goods sold', 'فروخت شدہ مال کی لاگت'], ['gross_profit', 'Gross profit', 'مجموعی منافع'], ['rental_income', 'Rental income', 'کرایہ کی آمدنی'],
+  ['net_profit', 'NET PROFIT', 'خالص منافع'], ['discounts_given', 'Discounts given', 'دی گئی رعایت'],
+  // settings & security
+  ['language', 'Language', 'زبان'], ['print_method', 'Receipt printing via', 'رسید پرنٹ کا طریقہ'], ['pm_rawbt', 'RawBT app (Bluetooth printer)', 'RawBT ایپ (بلوٹوتھ پرنٹر)'], ['pm_bt', 'Web Bluetooth (BLE printers)', 'ویب بلوٹوتھ'],
+  ['pm_browser', 'Browser print / USB / Wi-Fi', 'براؤزر پرنٹ'], ['paper_width', 'Paper width', 'کاغذ کی چوڑائی'], ['auto_lock', 'Auto-lock after', 'آٹو لاک'], ['lock_now', 'Lock now', 'ابھی لاک کریں'],
+  ['shop_info', 'Shop details', 'دکان کی تفصیل'], ['shop_name', 'Shop name', 'دکان کا نام'], ['receipt_footer', 'Receipt footer', 'رسید کا فوٹر'], ['invoice_prefix', 'Bill number prefix', 'بل نمبر پری فکس'],
+  ['allow_negative', 'Allow selling below zero stock', 'صفر سے کم اسٹاک پر فروخت کی اجازت'], ['rental_grace', 'Rental grace (minutes)', 'کرایہ رعایتی وقت (منٹ)'], ['opening_balances', 'Opening balances (Rs)', 'ابتدائی بیلنس (روپے)'],
+  ['pin_security', 'PIN security', 'پن سیکیورٹی'], ['pin_help', 'Admin sees everything. Salesman cannot see costs/profit, buy stock, or change prices. Set the PINs on each phone.', 'ایڈمن سب دیکھ سکتا ہے۔ سیلز مین لاگت/منافع نہیں دیکھ سکتا، خریداری اور قیمت تبدیل نہیں کر سکتا۔ ہر فون پر پن لگائیں۔'],
+  ['admin_pin', 'Admin PIN (4-8 digits)', 'ایڈمن پن (4-8 ہندسے)'], ['salesman_pin', 'Salesman PIN', 'سیلز مین پن'], ['cloud_sync', 'Cloud backup & two-phone sync', 'کلاؤڈ بیک اپ اور دو فون سنک'],
+  ['sync_help', 'Optional. Use a DIFFERENT device letter on each phone, and the same Supabase login.', 'اختیاری۔ ہر فون پر الگ حرف رکھیں اور ایک ہی Supabase لاگ اِن۔'], ['device_code', 'This phone’s letter', 'اس فون کا حرف'],
+  ['email', 'Email', 'ای میل'], ['password', 'Password', 'پاس ورڈ'], ['sign_in', 'Sign in', 'سائن اِن'], ['sign_out', 'Sign out', 'سائن آؤٹ'], ['sync_now', 'Sync now', 'ابھی سنک کریں'], ['auto_sync', 'Auto sync', 'خودکار سنک'],
+  ['signed_in', 'Signed in', 'سائن اِن ہے'], ['not_signed_in', 'Not signed in', 'سائن اِن نہیں'], ['last_sync', 'Last sync', 'آخری سنک'], ['synced', 'Synced', 'سنک ہو گیا'], ['sync_failed', 'Sync failed', 'سنک ناکام'],
+  ['backup', 'Backup', 'بیک اپ'], ['export_backup', 'Download backup', 'بیک اپ ڈاؤن لوڈ'], ['import_backup', 'Restore backup', 'بیک اپ بحال'], ['confirm_import', 'This REPLACES all data on this phone. Continue?', 'یہ اس فون کا تمام ڈیٹا بدل دے گا۔ جاری رکھیں؟'],
+  ['reset_all_stock', 'Reset ALL stock to zero', 'تمام اسٹاک صفر کریں'], ['type_reset', 'Type RESET to confirm', 'تصدیق کے لیے RESET لکھیں'],
+  ['first_run', 'Welcome! Set an admin PIN to protect this app.', 'خوش آمدید! ایپ کی حفاظت کے لیے ایڈمن پن لگائیں۔'], ['new_pin', 'New PIN', 'نیا پن'], ['confirm_pin', 'Confirm PIN', 'پن دوبارہ لکھیں'],
+  ['enter_pin', 'Enter PIN', 'پن لکھیں'], ['unlock', 'Unlock', 'کھولیں'], ['pin_mismatch', 'PINs do not match', 'پن ایک جیسے نہیں'], ['pin_wrong', 'Wrong PIN', 'غلط پن'], ['pin_locked', 'Too many attempts. Wait', 'بہت زیادہ کوششیں۔ انتظار کریں'],
+  ['pin_format', 'PIN must be 4 to 8 digits', 'پن 4 سے 8 ہندسوں کا ہو'], ['pin_same', 'Admin and salesman PINs must differ', 'ایڈمن اور سیلز مین کے پن مختلف ہوں'], ['pin_role', 'Unknown role', 'نامعلوم کردار'],
+];
+export const dict = { en: {}, ur: {} };
+for (const [k, en, ur] of ROWS) { dict.en[k] = en; dict.ur[k] = ur; }
+for (const [u, n] of Object.entries(UNITS)) { dict.en[`unit_${u}`] = n.en; dict.ur[`unit_${u}`] = n.ur; }
