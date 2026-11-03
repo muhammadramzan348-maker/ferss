@@ -11,7 +11,7 @@ export async function dashboard() {
   const stat = (label, val, cls = '') => `<div class="stat ${cls}"><div class="v">${val}</div><div class="l">${label}</div></div>`;
   return `<h1 class="brand">${esc(S.shop.cfg.shopName)}</h1>
   <div style="margin:12px 0 18px;text-align:center">
-  <img src="./banner.png"
+  <img src="./ferss/banner.png"
        alt="Ramzan Electric Store & Hardware"
        style="display:block;width:100%;max-height:220px;object-fit:contain;border-radius:12px">
 </div>
