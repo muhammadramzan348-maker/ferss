@@ -7,7 +7,6 @@ const lp = (k, d) => (typeof localStorage === 'undefined' ? d : localStorage.get
 
 export async function settingsScreen() {
   const c = S.shop.cfg, admin = isAdmin();
-  const sc = await S.sync.config(), signed = await S.sync.signedIn(), last = (await S.shop.store.get('meta', 'lastSync'))?.at, queued = (await S.shop.store.all('outbox')).length;
   const set = (k, label, v, attrs = '') => field(k, label, v, { attrs: `data-chg="cfg" data-k="${k}" ${attrs}` });
   return `<h2>${t('settings')}</h2>
   <div class="card"><h3>${t('language')}</h3><div class="seg wide"><button class="${S.lang === 'en' ? 'on' : ''}" data-act="setLang" data-l="en">English</button><button class="${S.lang === 'ur' ? 'on' : ''}" data-act="setLang" data-l="ur">اردو</button></div>
@@ -20,15 +19,15 @@ export async function settingsScreen() {
     ${set('rentalGraceMin', t('rental_grace'), c.rentalGraceMin, 'inputmode="numeric"')}</div>
   <div class="card"><h3>${t('opening_balances')}</h3>${ACCOUNTS.map((a) => set(`opening_${a}`, t(`acc_${a}`), String((c[`opening_${a}`] | 0) / 100), 'inputmode="decimal"')).join('')}</div>
   <div class="card"><h3>${t('pin_security')}</h3><p class="sub">${t('pin_help')}</p>
-    ${field('adminPin', t('admin_pin'), '', { type: 'password', attrs: 'inputmode="numeric" maxlength="8" autocomplete="off"' })}${btn('savePin', t('save'), { data: { role: 'admin' } })}
+    ${field('adminPin', t('admin_pin'), '', { type: 'password', attrs: 'inputmode="numeric" maxlength="8" autocomplete="off"' })} ${btn('savePin', t('save'), { data: { role: 'admin' } })}
     ${field('salesPin', t('salesman_pin'), '', { type: 'password', attrs: 'inputmode="numeric" maxlength="8" autocomplete="off"' })}<div class="row">${btn('savePin', t('save'), { data: { role: 'salesman' } })}${await S.auth.hasSalesman() ? btn('removeSalesman', t('remove'), { cls: 'danger' }) : ''}</div></div>
-  <div class="card"><h3>☁ ${t('cloud_sync')}</h3><p class="sub">${t('sync_help')}</p>
-    ${select('deviceCode', t('device_code'), ['A', 'B', 'C', 'D'].map((x) => [x, x]), S.shop.deviceCode, 'data-chg="deviceCode"')}
-    <div id="syncForm">${field('url', 'Supabase URL', sc.url || '', { attrs: 'placeholder="https://xxxx.supabase.co" autocapitalize="off"' })}${field('anon', 'Anon key', sc.anon || '', { attrs: 'autocapitalize="off"' })}${field('email', t('email'), sc.email || '', { type: 'email' })}${field('password', t('password'), '', { type: 'password', attrs: 'autocomplete="off"' })}</div>
-    <div class="row wrap">${btn('syncLogin', t('sign_in'))}${btn('syncNow', '⟳ ' + t('sync_now'), { cls: 'pri' })}${signed ? btn('syncOut', t('sign_out'), { cls: 'link' }) : ''}</div>
-    <label class="f chk"><input type="checkbox" data-chg="localPrefBool" data-k="autoSync" ${lp('autoSync', '1') === '1' ? 'checked' : ''}> ${t('auto_sync')}</label>
-    <p class="sub" id="syncStatus">${signed ? '✔ ' + t('signed_in') : '✖ ' + t('not_signed_in')} · ${t('pending')}: ${queued} · ${t('last_sync')}: ${last ? fmtDateTime(last) : '—'}</p></div>
-  <div class="card"><h3>${t('backup')}</h3><div class="row wrap">${btn('exportJson', '⬇ ' + t('export_backup'), { cls: 'pri' })}<label class="btn">⬆ ${t('import_backup')}<input type="file" accept="application/json" data-chg="importFile" hidden></label></div>
+  <div class="card"><h3>☁ Google Drive Backup</h3><p class="sub">Apna sara dukan ka data apni Google Drive par mehfooz karein.</p>
+    <div class="row wrap">
+      <button onclick="startGoogleBackup()" style="background: #4285F4; color: white; padding: 8px 12px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">Backup to Drive</button>
+      <button onclick="startGoogleRestore()" style="background: #34A853; color: white; padding: 8px 12px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">Restore from Drive</button>
+    </div>
+    <p id="syncStatus" class="sub" style="margin-top: 5px; font-weight: bold;"></p></div>
+  <div class="card"><h3>${t('backup')}</h3><div class="row wrap"><label class="btn">⬆ ${t('import_backup')}<input type="file" accept="application/json" data-chg="importFile" hidden></label></div>
     <hr>${btn('resetAll', t('reset_all_stock'), { cls: 'danger' })}</div>` : ''}
   <div class="card"><h3>${t('install_app')}</h3><p class="sub">${t('install_help')}</p><p class="sub">v1.0 · ${S.shop.deviceCode}</p></div>`;
 }
@@ -49,22 +48,6 @@ acts.savePin = (el) => attempt(async () => {
   toast(t('saved')); refresh();
 });
 acts.removeSalesman = () => attempt(async () => { await S.auth.removeSalesman(); refresh(); });
-acts.syncLogin = () => attempt(async () => {
-  const f = formData($('#syncForm'));
-  await S.sync.saveConfig({ url: f.url, anon: f.anon, email: f.email }); await S.sync.signIn(f.email, f.password); toast(t('signed_in')); refresh();
-});
-acts.syncOut = () => attempt(async () => { await S.sync.signOut(); refresh(); });
-acts.syncNow = () => attempt(async () => {
-  const el = $('#syncStatus'); if (el) el.textContent = '⟳ …';
-  const r = await S.sync.syncNow();
-  if (r.error) toast(`${t('sync_failed')}: ${r.error}`, { error: true }); else toast(`${t('synced')} ↑${r.pushed} ↓${r.pulled}`);
-  window.dispatchEvent(new Event('app:refresh'));
-});
-acts.exportJson = () => attempt(async () => {
-  const data = await S.shop.exportAll();
-  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
-  a.download = `ramzan-backup-${new Date().toISOString().slice(0, 10)}.json`; a.click();
-});
 chg.importFile = (el) => attempt(async () => {
   const file = el.files[0]; if (!file) return;
   if (!ask(t('confirm_import'))) return;
