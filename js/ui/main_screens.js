@@ -3,7 +3,6 @@ import { S, acts, ins, chg, t, money, can, isAdmin, pname, unitName, qtyText, fi
   customerOptions, openSheet, closeSheet, sheetEl, formData, attempt, toast, go, refresh, ask, $ } from './ctx.js';
 import { thermalPrint, sharePdf, a4Print, whatsappText } from './output.js';
 import { ShopError, ACCOUNTS } from '../db.js';
-
 // ================= DASHBOARD =================
 export async function dashboard() {
   const d = await S.shop.dashboard();
