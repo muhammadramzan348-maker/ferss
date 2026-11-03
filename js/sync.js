@@ -77,3 +77,19 @@ export class Sync {
     }
   }
 }
+// Automatically add Google Drive buttons to the app screen
+window.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+        if (!document.getElementById('btnGoogleBackup')) {
+            const container = document.createElement('div');
+            container.style.cssText = "text-align: center; margin: 15px; padding: 10px; background: #fff; border-radius: 8px;";
+            container.innerHTML = `
+                <button onclick="startGoogleBackup()" style="background: #4285F4; color: white; padding: 10px 15px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; margin-right: 5px;">Backup to Drive</button>
+                <button onclick="startGoogleRestore()" style="background: #34A853; color: white; padding: 10px 15px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer;">Restore from Drive</button>
+                <p id="syncStatus" style="font-size: 12px; margin-top: 5px; font-weight: bold;"></p>
+            `;
+            const target = document.querySelector('#app') || document.body;
+            target.insertBefore(container, target.firstChild);
+        }
+    }, 1000);
+});
