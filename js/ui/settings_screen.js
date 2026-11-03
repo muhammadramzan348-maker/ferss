@@ -23,8 +23,8 @@ export async function settingsScreen() {
     ${field('salesPin', t('salesman_pin'), '', { type: 'password', attrs: 'inputmode="numeric" maxlength="8" autocomplete="off"' })}<div class="row">${btn('savePin', t('save'), { data: { role: 'salesman' } })}${await S.auth.hasSalesman() ? btn('removeSalesman', t('remove'), { cls: 'danger' }) : ''}</div></div>
   <div class="card"><h3>☁ Google Drive Backup</h3><p class="sub">Apna sara dukan ka data apni Google Drive par mehfooz karein.</p>
     <div class="row wrap">
-      <button onclick="startGoogleBackup()" style="background: #4285F4; color: white; padding: 8px 12px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">Backup to Drive</button>
-      <button onclick="startGoogleRestore()" style="background: #34A853; color: white; padding: 8px 12px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">Restore from Drive</button>
+      ${btn('googleBackup', 'Backup to Drive', { cls: 'pri' })}
+      ${btn('googleRestore', 'Restore from Drive')}
     </div>
     <p id="syncStatus" class="sub" style="margin-top: 5px; font-weight: bold;"></p></div>
   <div class="card"><h3>${t('backup')}</h3><div class="row wrap"><label class="btn">⬆ ${t('import_backup')}<input type="file" accept="application/json" data-chg="importFile" hidden></label></div>
@@ -48,6 +48,11 @@ acts.savePin = (el) => attempt(async () => {
   toast(t('saved')); refresh();
 });
 acts.removeSalesman = () => attempt(async () => { await S.auth.removeSalesman(); refresh(); });
+
+// Google Drive Actions mapping
+acts.googleBackup = () => { if (typeof startGoogleBackup === 'function') startGoogleBackup(); else alert('Google Drive script not loaded'); };
+acts.googleRestore = () => { if (typeof startGoogleRestore === 'function') startGoogleRestore(); else alert('Google Drive script not loaded'); };
+
 chg.importFile = (el) => attempt(async () => {
   const file = el.files[0]; if (!file) return;
   if (!ask(t('confirm_import'))) return;
