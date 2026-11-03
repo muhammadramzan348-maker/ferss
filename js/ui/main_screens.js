@@ -1,3 +1,6 @@
+<div style="margin-bottom: 15px; text-align: center;">
+  <img src="banner.png" alt="Ramzan Electric Store & Hardware" style="width: 100%; max-height: 180px; object-fit: cover; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);">
+</div>
 import { esc, fmtQty, fmtDateTime, parseQty, parseRs, qtyForAmount, priceFor, toBase, pktDayStart, mulDiv } from '../core.js';
 import { S, acts, ins, chg, t, money, can, isAdmin, pname, unitName, qtyText, field, select, btn, table, accountOptions,
   customerOptions, openSheet, closeSheet, sheetEl, formData, attempt, toast, go, refresh, ask, $ } from './ctx.js';
