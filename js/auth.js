@@ -1,6 +1,6 @@
 // PIN lock + roles. PINs are stored as salted PBKDF2 hashes on THIS device only.
 // NOTE: this keeps casual users out of the app; it cannot stop someone with
-// technical access to the phone's browser storage. Cloud data is protected by Supabase login.
+// technical access to the phone's browser storage. Keep a Google Drive backup so data is safe if the phone is lost.
 const enc = new TextEncoder();
 const b64 = (u8) => btoa(String.fromCharCode(...u8));
 const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));

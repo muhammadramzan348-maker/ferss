@@ -1,0 +1,42 @@
+# What changed in this update
+
+## Removed (Supabase / cloud sync)
+- `js/sync.js`, `supabase/schema.sql`, `tests/sync.test.js`, `tests/mock-supabase.js`
+- Sync card in Settings, auto-sync timers and the sync button in `js/app.js`, outbox/onChange/applyRemote in `js/db.js`, `outbox` store in `js/store.js`.
+
+## New files
+| File | Purpose |
+|---|---|
+| `js/gdrive.js` | Google Drive API (upload, list, download, delete old, validate) + Google sign-in token |
+| `js/ui/backup_actions.js` | `startGoogleBackup()` and `startGoogleRestore()` (+ Settings buttons) |
+| `js/theme.js` | Light / Dark mode, saved in `localStorage` key `theme` |
+| `js/ui/khata_screen.js` | Khata Entry screen (`#/khata`) |
+| `GOOGLE_DRIVE_SETUP.txt` | One-time Google Cloud setup (Roman Urdu) |
+| `tests/fixes.test.js`, `tests/gdrive.test.js`, `tests/fake-dom.js` | Regression tests for everything below |
+
+## Changed files
+`js/core.js` (exact weight pricing, `parseQtyLoose`), `js/db.js` (`preview()`, line notes, `findCustomer()`), `js/store.js`, `js/print.js`
+(notes + price per sell unit on receipts), `js/i18n.js`, `js/app.js` (khata route, theme button, ☰ More menu), `js/ui/ctx.js`,
+`js/ui/main_screens.js` (shared line sheet), `js/ui/stock_screens.js`, `js/ui/settings_screen.js`, `css/app.css` (dark theme),
+`index.html` (theme before first paint), `tools/sw.template.js`, `sw.js` (regenerated).
+
+## Bugs fixed
+1. **`S.shop.preview is not a function`** - `Shop.preview()` was missing (a patch had silently not been applied). Added, and a test now
+   fails if the UI ever calls a `S.shop.*` method that does not exist. The test also adds an item through the real UI action.
+2. **Weight -> cost** - the price is now always "per sell unit" (Rs 15 per kg) and the line total is computed exactly with ONE rounding at
+   the end. Before, 250 g of a Rs 15/kg item was priced from a rounded per-gram price (2 paise) = Rs 5.00 instead of Rs 3.75.
+   Quantity also accepts `0.25`, `1/4`, `1 1/2`, `½`.
+3. The phone's bottom bar had no way to reach Reports/Rentals: added a **☰ More** menu.
+
+## Existing data
+Nothing to migrate. Old bills keep their stored totals. After deploying, close and reopen the installed app twice so the new
+offline cache is picked up (or Chrome > Site settings > Clear & reset).
+
+---
+# Branding update
+- **App icon / favicon / Apple icon / maskable icon** are now your logo (`icons/`).
+- **Logo** (`img/logo-256.png`, `img/logo-512.png`): lock screen, top bar, sidebar, Settings card, A4 invoice/PDF header, optional on thermal receipts
+  (Settings -> "Print logo on thermal receipt", off by default because gold prints faintly on thermal paper).
+- **Banner with contact number** (`img/banner.jpg`): top of the Dashboard. Tap it to share the shop card on WhatsApp.
+- Receipts now default to the banner details: 03006703028, Noor-e-Wali, Rahim Yar Khan (editable in Settings -> Shop details).
+- Changed: `js/app.js`, `js/print.js`, `js/db.js`, `js/i18n.js`, `js/ui/main_screens.js`, `js/ui/output.js`, `js/ui/settings_screen.js`, `css/app.css`, `index.html`, `tools/gen_sw.py`, `sw.js`.

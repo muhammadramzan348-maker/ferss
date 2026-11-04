@@ -23,7 +23,7 @@ test('sell in grams, multi-unit pricing (dozen bulbs, feet of wire)', async () =
   const s = await mkShop(); const { paris, bulb, wire } = await seed(s);
   const a = await s.postSale({ lines: [{ productId: paris.id, unit: 'g', qty: 500000 }], payments: [{ account: 'cash', amount: 3000 }] });
   assert.equal(a.total, 3000);                   // 500 g x 6 paise
-  const b = await s.postSale({ lines: [{ productId: bulb.id, unit: 'dozen', qty: 2000, price: 270000 }], payments: [{ account: 'bank', amount: 540000 }] });
+  const b = await s.postSale({ lines: [{ productId: bulb.id, unit: 'dozen', qty: 2000, price: 22500 }], payments: [{ account: 'bank', amount: 540000 }] });   // price is per PIECE (Rs 225) -> 24 pcs
   assert.equal(stockOf(s, bulb).qty, 96000);     // 120 - 24 pcs
   assert.equal(b.cogs, 24 * 18000);
   const c = await s.postSale({ lines: [{ productId: wire.id, unit: 'ft', qty: 10000 }], payments: [{ account: 'cash', amount: 15240 }] });

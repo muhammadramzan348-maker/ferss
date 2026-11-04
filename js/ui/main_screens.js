@@ -1,20 +1,17 @@
-import { esc, fmtQty, fmtDateTime, parseQty, parseRs, qtyForAmount, priceFor, toBase, pktDayStart, mulDiv } from '../core.js';
+import { esc, fmtQty, fmtDateTime, parseRs, parseQtyLoose, qtyForAmount, listPrice, lineGross, toBase, pktDayStart } from '../core.js';
 import { S, acts, ins, chg, t, money, can, isAdmin, pname, unitName, qtyText, field, select, btn, table, accountOptions,
-  customerOptions, openSheet, closeSheet, sheetEl, formData, attempt, toast, go, refresh, ask, $ } from './ctx.js';
-import { thermalPrint, sharePdf, a4Print, whatsappText } from './output.js';
+  customerOptions, openSheet, closeSheet, sheetEl, formData, attempt, toast, go, refresh, ask, lp, $ } from './ctx.js';
+import { thermalPrint, sharePdf, a4Print, whatsappText, shareShopCard } from './output.js';
 import { ShopError, ACCOUNTS } from '../db.js';
+
 // ================= DASHBOARD =================
 export async function dashboard() {
   const d = await S.shop.dashboard();
   const low = S.shop.lowStock().slice(0, 5);
   const overdue = S.shop.activeRentals().filter((r) => r.dueAt && r.dueAt < S.shop.now()).length;
   const stat = (label, val, cls = '') => `<div class="stat ${cls}"><div class="v">${val}</div><div class="l">${label}</div></div>`;
-  return `<h1 class="brand">${esc(S.shop.cfg.shopName)}</h1>
-  <div style="margin:12px 0 18px;text-align:center">
-  <img src="./ferss/banner.png"
-       alt="Ramzan Electric Store & Hardware"
-       style="display:block;width:100%;max-height:220px;object-fit:contain;border-radius:12px">
-</div>
+  return `<h1 class="sr-only">${esc(S.shop.cfg.shopName)}</h1>
+  <button class="banner" data-act="shareCard" aria-label="${t('share_card')}"><img src="img/banner.jpg" alt="${esc(S.shop.cfg.shopName)}" width="1200" height="687"><span class="share-chip">📤 ${t('share_card')}</span></button>
   <div class="grid stats">
     ${stat(t('today_sales'), money(d.todaySales) + ` <small>(${d.todayCount})</small>`)}
     ${d.todayProfit !== undefined ? stat(t('today_profit'), money(d.todayProfit), 'good') : ''}
@@ -25,19 +22,21 @@ export async function dashboard() {
   </div>
   <div class="card"><h3>${t('accounts')}</h3><div class="grid stats">${ACCOUNTS.map((a) => stat(t(`acc_${a}`), money(d.accounts[a]), d.accounts[a] < 0 ? 'bad' : '')).join('')}</div></div>
   <div class="card"><h3>${t('quick_actions')}</h3><div class="row wrap">
-    <a class="btn pri" href="#/sell">🛒 ${t('new_sale')}</a><a class="btn" href="#/sell" data-act="newEstimate">📝 ${t('estimate')}</a>
+    <a class="btn pri" href="#/sell">🛒 ${t('new_sale')}</a><a class="btn pri" href="#/khata">📒 ${t('khata_entry')}</a><a class="btn" href="#/sell" data-act="newEstimate">📝 ${t('estimate')}</a>
     <a class="btn" href="#/customers">💰 ${t('receive_payment')}</a><a class="btn" href="#/rentals">🪑 ${t('rentals')}</a>
     <a class="btn" href="#/items">📦 ${t('items')}</a>${isAdmin() ? `<a class="btn" href="#/expenses">🧾 ${t('expenses')}</a>` : ''}
   </div></div>
+  ${isAdmin() && Date.now() - Number(lp('lastDriveBackup', 0)) > 7 * 86400000 ? `<div class="card late"><a href="#/settings">☁ ${t('backup_old')}</a></div>` : ''}
   ${low.length ? `<div class="card"><h3>⚠ ${t('low_stock')}</h3>${low.map((p) => `<div class="li"><span>${esc(pname(p))} ${esc(p.size)}</span><b class="bad">${qtyText(p, S.shop.stockOf(p.id).qty)}</b></div>`).join('')}</div>` : ''}
   ${d.openEstimates ? `<div class="card"><a href="#/sales?tab=estimates">📝 ${d.openEstimates} ${t('open_estimates')} →</a></div>` : ''}`;
 }
 acts.newEstimate = () => { S.cart = newCart(); };
+acts.shareCard = () => shareShopCard();
 
 // ================= POS / CART =================
 const newCart = () => ({ customerId: '', priceMode: 'retail', lines: [], discount: '', pay: {}, note: '', editEstimate: null });
 const cartInput = (c) => ({ customerId: c.customerId || null, priceMode: c.priceMode, discount: c.discount ? parseRs(c.discount) : 0, note: c.note,
-  lines: c.lines.map((l) => ({ productId: l.productId, unit: l.unit, price: l.price, discount: l.discount || 0, ...(l.amount != null ? { amount: l.amount } : { qty: l.qty }) })) });
+  lines: c.lines.map((l) => ({ productId: l.productId, unit: l.unit, price: l.price, discount: l.discount || 0, note: l.note || '', ...(l.amount != null ? { amount: l.amount } : { qty: l.qty }) })) });
 
 export async function pos() {
   S.cart ||= newCart();
@@ -66,7 +65,7 @@ function cartHtml() {
     <div class="lines">${c.lines.length ? c.lines.map((l, i) => {
       const p = S.shop.products.get(l.productId), x = pv?.lines?.[i];
       const q = x ? (l.amount != null ? `${money(l.amount)} → ${qtyText(p, x.baseQty)}` : `${fmtQty(x.qty)} ${unitName(l.unit)}`) : '';
-      return `<div class="line"><div class="grow" data-act="editLine" data-i="${i}"><b>${esc(pname(p))}</b> <small>${esc(p.size)}</small><div class="sub">${q} × ${money(l.price)}${l.discount ? ` − ${money(l.discount)}` : ''}</div></div>
+      return `<div class="line"><div class="grow" data-act="editLine" data-i="${i}"><b>${esc(pname(p))}</b> <small>${esc(p.size)}</small><div class="sub">${q} × ${money(l.price)}/${unitName(p.sellUnit)}${l.discount ? ` − ${money(l.discount)}` : ''}${l.note ? ` · ${esc(l.note)}` : ''}</div></div>
         <b>${x ? money(x.gross - x.discount) : ''}</b><button class="ic" data-act="delLine" data-i="${i}">✕</button></div>`; }).join('') : `<p class="empty">${t('cart_empty')}</p>`}</div>
     ${pv?.error ? `<p class="bad">${esc(pv.error)}</p>` : ''}
     <label class="f"><span>${t('bill_discount')}</span><input data-chg="cartDiscount" inputmode="decimal" value="${esc(c.discount)}" placeholder="0"></label>
@@ -84,7 +83,7 @@ const redrawCart = () => { const el = $('#cart'); if (el) el.innerHTML = cartHtm
 
 acts.priceMode = (el) => {
   S.cart.priceMode = el.dataset.m;
-  for (const l of S.cart.lines) if (!l.manual) l.price = priceFor(S.shop.products.get(l.productId), l.unit, S.cart.priceMode);
+  for (const l of S.cart.lines) if (!l.manual) l.price = listPrice(S.shop.products.get(l.productId), S.cart.priceMode);
   redrawCart();
 };
 chg.cartDiscount = (el) => { S.cart.discount = el.value; redrawCart(); };
@@ -97,7 +96,7 @@ function updateDue() {
 }
 acts.fullCash = () => {
   const pv = S.shop.preview(cartInput(S.cart)); if (!pv.calc) return;
-  S.cart.pay = { cash: String(pv.calc.total / 100) }; redrawCart();
+  S.cart.pay = { cash: (pv.calc.total / 100).toFixed(2) }; redrawCart();
 };
 acts.clearCart = () => { S.cart = newCart(); redrawCart(); };
 acts.delLine = (el) => { S.cart.lines.splice(Number(el.dataset.i), 1); redrawCart(); };
@@ -124,21 +123,28 @@ acts.saveQuickCustomer = () => attempt(async () => {
 });
 
 // ----- add / edit a line (by quantity OR by amount) -----
-acts.addLine = (el) => openLineSheet(S.shop.products.get(el.dataset.id), null);
-acts.editLine = (el) => { const i = Number(el.dataset.i); openLineSheet(S.shop.products.get(S.cart.lines[i].productId), i); };
-function openLineSheet(p, idx) {
-  const l = idx != null ? S.cart.lines[idx] : null, byAmt = l?.amount != null;
+acts.addLine = (el) => openLineSheet(S.shop.products.get(el.dataset.id), null, S.cart, redrawCart);
+acts.editLine = (el) => { const i = Number(el.dataset.i); openLineSheet(S.shop.products.get(S.cart.lines[i].productId), i, S.cart, redrawCart); };
+/**
+ * Add / edit one line. Shared by the POS cart and the Khata Entry screen.
+ * `price` is ALWAYS the price per SELL unit (e.g. Rs 15 per kg) and the total is computed exactly from it,
+ * so 250 g at Rs 15/kg is Rs 3.75 - not a rounded per-gram price.
+ */
+export function openLineSheet(p, idx, cart, redraw) {
+  S.lineCtx = { cart, redraw };
+  const l = idx != null ? cart.lines[idx] : null, byAmt = l?.amount != null;
   const units = [p.baseUnit, ...p.units.map((u) => u.unit)];
-  const unit = l?.unit || p.sellUnit, price = l?.price ?? priceFor(p, unit, S.cart.priceMode);
+  const unit = l?.unit || p.sellUnit, price = l?.price ?? listPrice(p, cart.priceMode || 'retail');
   openSheet(`<h3>${esc(pname(p))} <small>${esc(p.size)}</small></h3><p class="sub">${t('stock')}: ${qtyText(p, S.shop.stockOf(p.id).qty)}</p>
     <div class="seg wide"><button class="${byAmt ? '' : 'on'}" data-act="lineMode" data-mode="qty">${t('by_qty')}</button><button class="${byAmt ? 'on' : ''}" data-act="lineMode" data-mode="amt">${t('by_amount')}</button></div>
     <form data-pid="${p.id}" data-idx="${idx ?? ''}" data-mode="${byAmt ? 'amt' : 'qty'}" onsubmit="return false" id="lineForm">
-      <div data-pane="qty" ${byAmt ? 'hidden' : ''}><div class="row">${field('qty', t('quantity'), l && !byAmt ? fmtQty(l.qty) : '1', { attrs: 'inputmode="decimal" data-in="lineCalc"', cls: 'grow' })}
+      <div data-pane="qty" ${byAmt ? 'hidden' : ''}><div class="row">${field('qty', t('quantity'), l && !byAmt ? fmtQty(l.qty) : '1', { attrs: `inputmode="decimal" data-in="lineCalc" placeholder="${esc(t('qty_hint'))}"`, cls: 'grow' })}
         ${select('unit', t('unit'), units.map((u) => [u, unitName(u)]), unit, 'data-chg="lineUnit"')}</div></div>
-      <div data-pane="amt" ${byAmt ? '' : 'hidden'}>${field('amount', `${t('amount')} (Rs)`, l?.amount ? String(l.amount / 100) : '', { attrs: 'inputmode="decimal" data-in="lineCalc"' })}
-        <div class="big-result" id="amtResult"></div></div>
-      ${field('price', `${t('price')} / ${unitName(unit)}`, String(price / 100), { attrs: `inputmode="decimal" data-in="lineCalc" ${can('edit_price') ? '' : 'readonly'}` })}
-      ${field('discount', t('discount'), l?.discount ? String(l.discount / 100) : '', { attrs: 'inputmode="decimal"' })}
+      <div data-pane="amt" ${byAmt ? '' : 'hidden'}>${field('amount', `${t('amount')} (Rs)`, l?.amount ? (l.amount / 100).toFixed(2) : '', { attrs: 'inputmode="decimal" data-in="lineCalc"' })}</div>
+      <div class="big-result" id="lineResult"></div>
+      ${field('price', `${t('price')} / ${unitName(p.sellUnit)}`, (price / 100).toFixed(2), { attrs: `inputmode="decimal" data-in="lineCalc" ${can('edit_price') ? '' : 'readonly'}` })}
+      ${field('discount', t('discount'), l?.discount ? (l.discount / 100).toFixed(2) : '', { attrs: 'inputmode="decimal" data-in="lineCalc"' })}
+      ${field('note', t('item_note'), l?.note || '', { attrs: `maxlength="120" placeholder="${esc(t('note_hint'))}"` })}
       ${btn('lineSave', l ? t('update') : t('add_to_cart'), { cls: 'pri big' })}</form>`);
   ins.lineCalc();
 }
@@ -146,33 +152,36 @@ acts.lineMode = (el) => {
   const f = $('#lineForm'), m = el.dataset.mode; f.dataset.mode = m;
   f.querySelector('[data-pane=qty]').hidden = m !== 'qty'; f.querySelector('[data-pane=amt]').hidden = m !== 'amt';
   el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el));
-  if (m === 'amt') { const p = S.shop.products.get(f.dataset.pid); f.unit.value = p.sellUnit; chg.lineUnit(f.unit); }
   ins.lineCalc();
 };
-chg.lineUnit = (el) => {
-  const f = el.form || $('#lineForm'), p = S.shop.products.get(f.dataset.pid);
-  if (can('edit_price') || true) f.price.value = String(priceFor(p, f.unit.value, S.cart.priceMode) / 100);
-  ins.lineCalc();
-};
+chg.lineUnit = () => ins.lineCalc();
+/** live preview inside the sheet */
 ins.lineCalc = () => {
-  const f = $('#lineForm'); if (!f) return;
-  const p = S.shop.products.get(f.dataset.pid), out = $('#amtResult');
+  const f = $('#lineForm'), out = $('#lineResult'); if (!f || !out) return;
+  const p = S.shop.products.get(f.dataset.pid);
   try {
+    const price = parseRs(f.price.value || '0'), disc = f.discount.value ? parseRs(f.discount.value) : 0;
     if (f.dataset.mode === 'amt') {
-      const q = qtyForAmount(parseRs(f.amount.value || '0') || 1, parseRs(f.price.value));
-      const base = toBase(p, q, f.unit.value);
-      out.textContent = f.amount.value ? `${money(parseRs(f.amount.value))} = ${fmtQty(q)} ${unitName(f.unit.value)} (${qtyText(p, base)})` : '';
+      if (!f.amount.value) { out.textContent = ''; return; }
+      const amt = parseRs(f.amount.value), q = qtyForAmount(amt, price);
+      out.textContent = `${money(amt)} = ${fmtQty(q)} ${unitName(p.sellUnit)} (${qtyText(p, toBase(p, q, p.sellUnit))})`;
+    } else {
+      const q = parseQtyLoose(f.qty.value), g = lineGross(p, q, f.unit.value, price);
+      out.textContent = `${fmtQty(q)} ${unitName(f.unit.value)} → ${money(g - disc)}`;
     }
-  } catch (e) { if (out) out.textContent = ''; }
+  } catch { out.textContent = ''; }
 };
 acts.lineSave = () => attempt(async () => {
-  const f = $('#lineForm'), p = S.shop.products.get(f.dataset.pid), amt = f.dataset.mode === 'amt';
-  const unit = f.unit.value, price = parseRs(f.price.value), idx = f.dataset.idx === '' ? null : Number(f.dataset.idx);
-  const line = { productId: p.id, unit, price, discount: f.discount.value ? parseRs(f.discount.value) : 0, manual: price !== priceFor(p, unit, S.cart.priceMode) };
+  const f = $('#lineForm'), p = S.shop.products.get(f.dataset.pid), amt = f.dataset.mode === 'amt', { cart, redraw } = S.lineCtx;
+  const idx = f.dataset.idx === '' ? null : Number(f.dataset.idx), price = parseRs(f.price.value);
+  const line = { productId: p.id, unit: amt ? p.sellUnit : f.unit.value, price, discount: f.discount.value ? parseRs(f.discount.value) : 0,
+    note: f.note.value.trim(), manual: price !== listPrice(p, cart.priceMode || 'retail') };
   if (amt) { line.amount = parseRs(f.amount.value); if (!(line.amount > 0)) throw new Error(t('enter_amount')); }
-  else { line.qty = parseQty(f.qty.value); if (!(line.qty > 0)) throw new Error(t('enter_qty')); }
-  if (idx != null) S.cart.lines[idx] = line; else S.cart.lines.push(line);
-  closeSheet(); redrawCart();
+  else { line.qty = parseQtyLoose(f.qty.value); if (!(line.qty > 0)) throw new Error(t('enter_qty')); }
+  const pv = S.shop.preview({ priceMode: cart.priceMode || 'retail', lines: [{ productId: p.id, unit: line.unit, price, discount: line.discount, ...(amt ? { amount: line.amount } : { qty: line.qty }) }] });
+  if (pv.error) throw new Error(pv.error);
+  if (idx != null) cart.lines[idx] = line; else cart.lines.push(line);
+  closeSheet(); redraw();
 });
 
 // ----- finalize -----
@@ -235,7 +244,7 @@ export async function saleDetail(id) {
   const cust = s.customerId ? S.shop.customers.get(s.customerId) : null, est = s.type === 'estimate';
   return `<a href="#/sales" class="back">← ${t('sales')}</a><div class="card"><h2>${est ? t('estimate') : t('invoice')} ${esc(s.no)}</h2>
     <p>${fmtDateTime(s.at)} · ${esc(cust?.name || t('walk_in'))} ${s.status !== 'posted' && s.status !== 'open' ? `<b class="bad">[${s.status}]</b>` : ''}</p>
-    ${table([t('item'), t('quantity'), t('price'), t('total')], s.lines.map((l) => [esc(l.name) + (l.size ? ` <small>${esc(l.size)}</small>` : ''), `${fmtQty(l.qty)} ${unitName(l.unit)}`, money(l.price), money(l.gross - l.discount)]), { right: [1, 2, 3] })}
+    ${table([t('item'), t('quantity'), t('price'), t('total')], s.lines.map((l) => [esc(l.name) + (l.size ? ` <small>${esc(l.size)}</small>` : '') + (l.note ? `<br><small>📝 ${esc(l.note)}</small>` : ''), `${fmtQty(l.qty)} ${unitName(l.unit)}`, `${money(l.price)}/${unitName(l.priceUnit || l.unit)}`, money(l.gross - l.discount)]), { right: [1, 2, 3] })}
     <div class="li"><span>${t('subtotal')}</span><b>${money(s.subtotal)}</b></div>
     ${s.discount ? `<div class="li"><span>${t('bill_discount')}</span><b>−${money(s.discount)}</b></div>` : ''}
     <div class="li"><span>${t('total')}</span><b>${money(s.total)}</b></div>
@@ -264,4 +273,4 @@ acts.doConvert = (el) => attempt(async () => {
   catch (e) { if (e.code === 'credit_limit' && ask(`${e.message}\n\n${t('continue_anyway')}`)) sale = await S.shop.convertEstimate(el.dataset.id, { payments: pays, customerId: f.cust || null, overrideLimit: true }); else throw e; }
   closeSheet(); billDone(sale); refresh();
 });
-void mulDiv; void unitName; void select; void accountOptions; void go;
+void select; void accountOptions; void go;

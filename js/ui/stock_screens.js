@@ -100,7 +100,7 @@ export async function partyList(kind) {
   const q = pq[kind].toLowerCase();
   const list = [...src.values()].filter((x) => x.active && (!q || x.name.toLowerCase().includes(q) || (x.phone || '').includes(q))).sort((a, b) => a.name.localeCompare(b.name));
   const tot = list.reduce((a, x) => a + Math.max(0, S.shop.balance(kind, x.id)), 0);
-  return `<div class="row"><h2 class="grow">${t(kind === 'customer' ? 'customers' : 'suppliers')}</h2>${btn('editParty', '＋ ' + t(kind === 'customer' ? 'add_customer' : 'add_supplier'), { cls: 'pri', data: { kind, id: '' } })}</div>
+  return `<div class="row wrap"><h2 class="grow">${t(kind === 'customer' ? 'customers' : 'suppliers')}</h2>${kind === 'customer' ? `<a class="btn" href="#/khata">📒 ${t('khata_entry')}</a>` : ''}${btn('editParty', '＋ ' + t(kind === 'customer' ? 'add_customer' : 'add_supplier'), { cls: 'pri', data: { kind, id: '' } })}</div>
   <input class="search" data-chg="partySearch" data-kind="${kind}" value="${esc(pq[kind])}" placeholder="🔍 ${t('name')} / ${t('phone')}">
   <div class="card"><div class="li"><b>${t(kind === 'customer' ? 'receivable' : 'payable')}</b><b class="${kind === 'customer' ? 'warn' : 'bad'}">${money(tot)}</b></div>
   ${list.map((x) => { const b = S.shop.balance(kind, x.id);

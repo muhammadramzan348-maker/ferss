@@ -1,0 +1,24 @@
+GOOGLE DRIVE BACKUP KI SETTING (sirf ek dafa, free hai)
+
+1. https://console.cloud.google.com kholein, apne Gmail se login karein.
+   Upar "Select a project" > "New project" > naam "Ramzan Store" > Create.
+2. Menu > "APIs & Services" > "Library" > "Google Drive API" dhoondein > Enable.
+3. "APIs & Services" > "OAuth consent screen" (ya "Google Auth Platform"):
+   - User type: External > App name: Ramzan Store > apni email daalein > Save.
+   - "Audience / Test users" mein APNA Gmail add karein (jis Drive mein backup chahiye).
+4. "Credentials" > "Create credentials" > "OAuth client ID" > Application type: "Web application".
+   - "Authorized JavaScript origins" mein sirf apni site ka address daalein, bilkul aisa (path/slash ke baghair):
+         https://AAP-KA-USERNAME.github.io
+   - Create dabayein, aur "Client ID" copy kar lein (…apps.googleusercontent.com).
+5. App kholein > Settings > "Google Drive backup" > Client ID paste karein > "Backup to Google Drive" dabayein.
+   Google ka popup aaye to apna Gmail chunein aur "Allow" karein.
+   Agar "Google hasn't verified this app" likha aaye: Advanced > Continue (ye aap ki apni app hai).
+   Popups allow hone chahiye.
+6. Restore: Settings > "Restore from Google Drive" > backup chunein. Restore se pehle app khud
+   maujooda data ki ek hifazati copy download kar leti hai.
+
+Zaroori baatein
+* App sirf wahi files dekh sakti hai jo usne khud banayi hain ("drive.file" scope); aap ki baqi Drive nahi.
+* Aakhri 10 backups rakhe jate hain, purane khud hat jate hain.
+* Backup file Drive mein plain JSON hai (Ramzan-Store-Backup-2026-11-03_1405.json). Isay kisi ko na dein.
+* Har hafte backup lein; dashboard par 7 din se purana backup hone par yaad-dahani aati hai.

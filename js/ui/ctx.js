@@ -1,8 +1,11 @@
 // Shared UI state + helpers. Nothing here touches the DOM at import time (so screens can be smoke-tested in Node).
 import { fmtRs, esc, fmtQty, UNITS } from '../core.js';
+export { esc };
 import { dict } from '../i18n.js';
 
-export const S = { shop: null, auth: null, sync: null, lang: 'en', cart: null, purchase: null, rental: null, idleMin: 5 };
+export const S = { shop: null, auth: null, lang: 'en', cart: null, purchase: null, rental: null, khata: null, lineCtx: null, idleMin: 5 };
+/** read a local (per-phone) preference */
+export const lp = (k, d) => (typeof localStorage === 'undefined' ? d : localStorage.getItem(k) ?? d);
 export const acts = {}, ins = {}, chg = {};          // delegated handlers: data-act / data-in / data-chg
 
 export const t = (k) => dict[S.lang]?.[k] ?? dict.en[k] ?? k;

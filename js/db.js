@@ -1,11 +1,11 @@
 // Shop: all business rules. Every posting is built in memory, then written in ONE atomic
-// storage batch (documents + outbox). Stock, khata and cash balances are derived from
-// append-only rows (movements / ledger / cashTx) so two phones can merge safely.
-import { mulDiv, lineAmount, qtyForAmount, toBase, priceFor, calcInvoice, allocate, rentalUnits,
+// storage batch. Stock, khata and cash balances are derived from append-only rows
+// (movements / ledger / cashTx), so they can always be rebuilt and audited.
+import { mulDiv, lineAmount, lineGross, listPrice, qtyForAmount, toBase, calcInvoice, allocate, rentalUnits,
   pktDayStart, periodKey, fmtRs, normalizePk, waLink } from './core.js';
 
 export const ACCOUNTS = ['cash', 'bank', 'jazzcash', 'easypaisa'];
-export const SYNCED = new Set(['settings', 'products', 'categories', 'customers', 'suppliers', 'sales', 'purchases',
+export const DATA_COLS = new Set(['settings', 'products', 'categories', 'customers', 'suppliers', 'sales', 'purchases',
   'movements', 'ledger', 'cashTx', 'expenses', 'rentalItems', 'rentals']);
 export const IMMUTABLE = new Set(['movements', 'ledger', 'cashTx']);
 const SALESMAN = new Set(['sell', 'estimate', 'customers', 'receive', 'rentals', 'view_items']);
@@ -15,7 +15,7 @@ export class ShopError extends Error {
 }
 
 const DEFAULTS = {
-  shopName: 'RAMZAN ELECTRIC STORE & HARDWARE', shopAddress: '', shopPhone: '', footer: 'Thank you for your business',
+  shopName: 'RAMZAN ELECTRIC STORE & HARDWARE', shopAddress: 'Noor-e-Wali, Rahim Yar Khan', shopPhone: '03006703028', logoOnThermal: false, footer: 'Thank you for your business',
   receiptWidth: '80', allowNegative: false, rentalGraceMin: 30, invoicePrefix: 'RES',
   opening_cash: 0, opening_bank: 0, opening_jazzcash: 0, opening_easypaisa: 0,
 };
@@ -80,30 +80,17 @@ export class Shop {
     else if (this[col] instanceof Map) this[col].set(o.id, o);
   }
 
-  /** Atomically persist docs [{col,obj}] (+ outbox) and update caches. */
+  /** Atomically persist docs [{col,obj}] and update caches. */
   async commit(docs) {
     const t = this.now(), ops = [], out = [];
     for (const d of docs) {
       const o = d.col === 'meta' ? { ...d.obj } : { ...d.obj, updatedAt: t, device: this.deviceCode };
       out.push({ col: d.col, obj: o });
       ops.push({ col: d.col, obj: o });
-      if (SYNCED.has(d.col)) ops.push({ col: 'outbox', obj: { id: `${d.col}:${o.id}`, col: d.col, rid: o.id, at: t } });
     }
     await this.store.batch(ops);
     for (const d of out) if (d.col !== 'meta') this._cache(d.col, d.obj);
-    if (this.onChange) this.onChange(out);
     return out.map((d) => d.obj);
-  }
-
-  /** Apply a record received from the cloud. Returns true if it changed anything. */
-  async applyRemote(col, doc) {
-    if (!SYNCED.has(col)) return false;
-    const cur = await this.store.get(col, doc.id);
-    if (IMMUTABLE.has(col)) { if (cur) return false; }
-    else if (cur && (cur.updatedAt || 0) >= (doc.updatedAt || 0)) return false;
-    await this.store.batch([{ col, obj: doc }]);
-    this._cache(col, doc);
-    return true;
   }
 
   async nextNo(prefix) {
@@ -170,7 +157,8 @@ export class Shop {
     out.sort((a, b) => a.name.localeCompare(b.name));
     return out.slice(0, limit);
   }
-  defaultPrice(pid, unit, mode = 'retail') { return priceFor(this.products.get(pid), unit, mode); }
+  /** List price per SELL unit (paise). */
+  defaultPrice(pid, mode = 'retail') { return listPrice(this.products.get(pid), mode); }
 
   /** Manual stock correction (admin). deltaBase is signed, in base milli-units. */
   async adjustStock(pid, deltaBase, reason) {
@@ -216,6 +204,17 @@ export class Shop {
     if (!old && input.openingBalance) docs.push(this._led(party, o.id, 'opening', input.openingBalance | 0, null, 'Opening balance', this.now()));
     await this.commit(docs);
     return o;
+  }
+
+  /** Find an existing customer by phone number (preferred) or exact name. */
+  findCustomer({ phone = '', name = '' } = {}) {
+    const n = normalizePk(phone), nm = name.trim().toLowerCase();
+    for (const c of this.customers.values()) {
+      if (!c.active) continue;
+      if (n && normalizePk(c.phone) === n) return c;
+      if (!n && nm && c.name.trim().toLowerCase() === nm) return c;
+    }
+    return null;
   }
 
   async receivePayment({ customerId, account = 'cash', amount, note = '' }) {
@@ -267,15 +266,20 @@ export class Shop {
       const p = this.products.get(l.productId);
       if (!p) throw new ShopError('Item not found');
       if (!p.active) throw new ShopError(`${p.name} is archived`);
-      const unit = l.unit || p.sellUnit;
-      const listPrice = priceFor(p, unit, input.priceMode);
-      const price = l.price ?? listPrice;
-      if (price !== listPrice && !input.trustPrices && !this.can('edit_price')) throw new ShopError('You are not allowed to change prices', 'forbidden');
+      let unit = l.unit || p.sellUnit;
+      // `price` is always the price per SELL unit (e.g. Rs 15 per kg), whatever unit the quantity is typed in.
+      const lp = listPrice(p, input.priceMode), price = l.price ?? lp;
+      if (price !== lp && !input.trustPrices && !this.can('edit_price')) throw new ShopError('You are not allowed to change prices', 'forbidden');
       let qty = l.qty, gross;
-      if (l.amount != null) {                       // "Rs 15 of Paris" mode
+      if (l.amount != null) {                       // "Rs 15 of Paris" mode: quantity is worked out from the amount
         if (!(l.amount > 0)) throw new ShopError('Amount must be greater than zero');
-        qty = qtyForAmount(l.amount, price); gross = l.amount;
-      } else { if (!Number.isInteger(qty) || qty <= 0) throw new ShopError('Quantity must be greater than zero'); gross = lineAmount(qty, price); }
+        unit = p.sellUnit;
+        try { qty = qtyForAmount(l.amount, price); } catch (e) { throw new ShopError(`${p.name}: ${e.message}`); }
+        gross = l.amount;
+      } else {
+        if (!Number.isInteger(qty) || qty <= 0) throw new ShopError('Quantity must be greater than zero');
+        try { gross = l.fixedGross ?? lineGross(p, qty, unit, price); } catch (e) { throw new ShopError(e.message); }
+      }
       let baseQty;
       try { baseQty = toBase(p, qty, unit); } catch (e) { throw new ShopError(e.message); }
       const st = running.get(p.id) || { ...this.stockOf(p.id) };
@@ -285,12 +289,17 @@ export class Shop {
         cogs = st.qty > 0 && baseQty <= st.qty ? mulDiv(st.value, baseQty, st.qty) : mulDiv(st.qty > 0 ? mulDiv(st.value, 1000, st.qty) : this.avgCost(p.id), baseQty, 1000);
         st.qty -= baseQty; st.value -= cogs; running.set(p.id, st);
       }
-      lines.push({ productId: p.id, name: p.name, nameUr: p.nameUr, size: p.size, unit, qty, price, gross,
-        discount: l.discount | 0, baseQty, cogs, byAmount: l.amount != null, amountInput: l.amount ?? null });
+      lines.push({ productId: p.id, name: p.name, nameUr: p.nameUr, size: p.size, unit, qty, price, priceUnit: p.sellUnit, gross,
+        discount: l.discount | 0, baseQty, cogs, byAmount: l.amount != null, amountInput: l.amount ?? null, note: String(l.note || '').trim().slice(0, 120) });
     }
     const calc = calcInvoice(lines.map((l) => l.gross), lines.map((l) => l.discount), input.discount | 0);
     lines.forEach((l, i) => { l.share = calc.lines[i].share; l.net = calc.lines[i].net; });
     return { lines, calc };
+  }
+
+  /** Cart totals without writing anything (stock is not checked). Returns {lines, calc} or {error}. */
+  preview(input) {
+    try { return this._prepLines(input, { checkStock: false }); } catch (e) { return { error: e.message }; }
   }
 
   async saveEstimate(input) {
@@ -346,8 +355,8 @@ export class Shop {
       if (!est || est.type !== 'estimate' || est.status !== 'open') throw new ShopError('Estimate is not open');
       const input = { customerId: customerId ?? est.customerId, priceMode: est.priceMode, discount: est.discount, note: est.note,
         payments, overrideLimit, trustPrices: true,
-        lines: est.lines.map((l) => ({ productId: l.productId, unit: l.unit, price: l.price, discount: l.discount,
-          ...(l.byAmount ? { amount: l.amountInput } : { qty: l.qty }) })) };
+        lines: est.lines.map((l) => ({ productId: l.productId, unit: l.unit, price: l.price, discount: l.discount, note: l.note,
+          ...(l.byAmount ? { amount: l.amountInput } : { qty: l.qty, fixedGross: l.gross }) })) };
       // the new bill and the estimate's 'converted' status are committed together
       const sale = await this._postSale(input, (sl) => [{ col: 'sales', obj: { ...est, status: 'converted', convertedTo: sl.id } }]);
       return sale;
@@ -630,7 +639,7 @@ export class Shop {
   async exportAll() {
     this.need('backup');
     const out = { app: 'ramzan-shop', version: 1, at: this.now(), data: {} };
-    for (const c of [...SYNCED]) out.data[c] = await this.store.all(c);
+    for (const c of [...DATA_COLS]) out.data[c] = await this.store.all(c);
     return out;
   }
   async importAll(json, { replace = true } = {}) {
@@ -639,11 +648,11 @@ export class Shop {
     if (replace) { const dev = await this.store.get('meta', 'device'); await this.store.clearAll(); await this.store.batch([{ col: 'meta', obj: dev }]); }
     const ops = [];
     for (const [col, rows] of Object.entries(json.data)) {
-      if (!SYNCED.has(col)) continue;
-      for (const o of rows) { ops.push({ col, obj: o }); ops.push({ col: 'outbox', obj: { id: `${col}:${o.id}`, col, rid: o.id, at: this.now() } }); }
+      if (!DATA_COLS.has(col)) continue;
+      for (const o of rows) ops.push({ col, obj: o });
     }
     await this.store.batch(ops);
     await this.rebuild();
-    return ops.length / 2;
+    return ops.length;
   }
 }

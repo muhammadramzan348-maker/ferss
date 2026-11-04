@@ -1,6 +1,6 @@
 // Storage adapters. MemoryStore is used by tests; IdbStore (IndexedDB) by the browser.
 export const COLS = ['settings', 'products', 'categories', 'customers', 'suppliers', 'sales', 'purchases',
-  'movements', 'ledger', 'cashTx', 'expenses', 'rentalItems', 'rentals', 'outbox', 'meta'];
+  'movements', 'ledger', 'cashTx', 'expenses', 'rentalItems', 'rentals', 'meta'];
 const clone = (o) => (o === undefined ? undefined : JSON.parse(JSON.stringify(o)));
 
 export class MemoryStore {

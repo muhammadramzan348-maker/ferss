@@ -1,20 +1,21 @@
-// Boot, lock screen, router, shell, event delegation, auto-sync, idle lock, service worker.
+// Boot, lock screen, router, shell, event delegation, idle lock, theme, service worker.
 import { IdbStore } from './store.js';
 import { Shop } from './db.js';
 import { Auth, AuthError } from './auth.js';
-import { Sync } from './sync.js';
-import { S, acts, ins, chg, t, toast, openSheet, closeSheet, $, isAdmin, can, attempt } from './ui/ctx.js';
+import { S, acts, ins, chg, t, toast, openSheet, closeSheet, $, isAdmin } from './ui/ctx.js';
 import * as M from './ui/main_screens.js';
 import * as K from './ui/stock_screens.js';
 import * as O from './ui/ops_screens.js';
+import { khataScreen } from './ui/khata_screen.js';
 import { settingsScreen } from './ui/settings_screen.js';
 import { esc } from './core.js';
+import { applyTheme, getTheme, toggleTheme, browserEnv } from './theme.js';
 
 const root = document.getElementById('app');
-let syncTimer = null, idleTimer = null, autoTimer = null;
+let idleTimer = null;
 
 export const ROUTES = [
-  [/^$/, () => M.dashboard()], [/^sell$/, () => M.pos()], [/^sales$/, (m, q) => M.salesList(q)], [/^sale\/(.+)$/, (m) => M.saleDetail(m[1])],
+  [/^$/, () => M.dashboard()], [/^sell$/, () => M.pos()], [/^khata$/, () => khataScreen()], [/^sales$/, (m, q) => M.salesList(q)], [/^sale\/(.+)$/, (m) => M.saleDetail(m[1])],
   [/^items$/, () => K.itemsList()], [/^item\/(.+)$/, (m) => K.itemForm(m[1])],
   [/^customers$/, () => K.partyList('customer')], [/^customer\/(.+)$/, (m) => K.partyDetail('customer', m[1])],
   [/^suppliers$/, () => K.partyList('supplier')], [/^supplier\/(.+)$/, (m) => K.partyDetail('supplier', m[1])],
@@ -24,10 +25,11 @@ export const ROUTES = [
 const ADMIN_ONLY = /^(suppliers|supplier\/|purchase|expenses)/;
 
 async function boot() {
+  applyTheme(getTheme(browserEnv()), document);
   const store = await new IdbStore().open();
   S.shop = await new Shop({ store }).init();
   S.shop.role = null;
-  S.auth = new Auth(store); S.sync = new Sync(S.shop, { onlineCheck: () => navigator.onLine });
+  S.auth = new Auth(store);
   S.lang = localStorage.getItem('lang') || 'en'; S.idleMin = Number(localStorage.getItem('idleMin') ?? 5);
   applyLang();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
@@ -37,15 +39,16 @@ function applyLang() { document.documentElement.lang = S.lang; document.document
 
 // ---------- lock screen ----------
 async function showLock() {
-  clearTimeout(idleTimer); clearInterval(autoTimer); closeSheet();
+  clearTimeout(idleTimer); closeSheet();
   S.shop.role = null;
   const setup = !(await S.auth.isSetUp());
-  root.innerHTML = `<div class="lock"><div class="lock-box"><h1>${esc(S.shop.cfg.shopName)}</h1>
+  root.innerHTML = `<div class="lock"><div class="lock-box"><img class="lock-logo" src="img/logo-256.png" alt="Ramzan Electric Store & Hardware"><h1>${esc(S.shop.cfg.shopName)}</h1>
     ${setup ? `<p>${t('first_run')}</p><input id="pin1" type="password" inputmode="numeric" maxlength="8" placeholder="${t('new_pin')}" autocomplete="off"><input id="pin2" type="password" inputmode="numeric" maxlength="8" placeholder="${t('confirm_pin')}" autocomplete="off">
     <button class="btn pri big" id="pinSet">${t('save')}</button>`
       : `<input id="pin" type="password" inputmode="numeric" maxlength="8" placeholder="${t('enter_pin')}" autocomplete="off" autofocus><button class="btn pri big" id="pinGo">🔓 ${t('unlock')}</button>`}
-    <p class="bad" id="pinErr"></p><div class="row"><button class="btn link" id="langBtn">${S.lang === 'en' ? 'اردو' : 'English'}</button></div></div></div>`;
+    <p class="bad" id="pinErr"></p><div class="row"><button class="btn link" id="langBtn">${S.lang === 'en' ? 'اردو' : 'English'}</button><button class="btn link" id="themeBtn">🌓</button></div></div></div>`;
   $('#langBtn').onclick = () => { setLang(S.lang === 'en' ? 'ur' : 'en'); showLock(); };
+  $('#themeBtn').onclick = () => toggleTheme(browserEnv());
   const err = (m) => { $('#pinErr').textContent = m; };
   if (setup) {
     $('#pinSet').onclick = async () => {
@@ -66,23 +69,30 @@ window.addEventListener('app:lock', showLock);
 // ---------- shell ----------
 function setLang(l) { S.lang = l; localStorage.setItem('lang', l); applyLang(); }
 window.addEventListener('app:lang', (e) => { setLang(e.detail); if (S.shop.role) startApp(); });
+const themeIcon = () => (getTheme(browserEnv()) === 'dark' ? '☀' : '🌙');
+window.addEventListener('app:theme', () => { const b = $('#themeTop'); if (b) b.textContent = themeIcon(); });
 
 function navItems() {
   const a = isAdmin();
-  return [['#/', '🏠', t('home')], ['#/sell', '🛒', t('sell')], ['#/sales', '🧾', t('sales')], ['#/items', '📦', t('items')], ['#/customers', '👥', t('customers')], ['#/rentals', '🪑', t('rentals')],
+  return [['#/', '🏠', t('home')], ['#/sell', '🛒', t('sell')], ['#/khata', '📒', t('khata_entry')], ['#/items', '📦', t('items')], ['#/sales', '🧾', t('sales')], ['#/customers', '👥', t('customers')], ['#/rentals', '🪑', t('rentals')],
     ...(a ? [['#/suppliers', '🚚', t('suppliers')], ['#/expenses', '💸', t('expenses')]] : []), ['#/reports', '📊', t('reports')], ['#/settings', '⚙', t('settings')]];
 }
 function startApp() {
-  const items = navItems(), primary = items.slice(0, 5);
-  root.innerHTML = `<div class="shell"><aside class="side"><div class="logo">⚡ ${esc(S.shop.cfg.shopName)}</div>${items.map(([h, i, l]) => `<a href="${h}" data-nav="${h}">${i} <span>${l}</span></a>`).join('')}</aside>
-    <div class="content"><header class="top"><b class="ttl">${esc(S.shop.cfg.shopName)}</b><span class="grow"></span><span class="role">${S.shop.role === 'admin' ? '👑' : '🧑‍💼'}</span>
-      <button class="ic" id="syncBtn" title="sync">⟳</button><button class="ic" id="langTop">${S.lang === 'en' ? 'اردو' : 'EN'}</button><button class="ic" id="lockTop">🔒</button></header>
+  const items = navItems(), primary = items.slice(0, 4);
+  root.innerHTML = `<div class="shell"><aside class="side"><div class="logo"><img class="side-logo" src="img/logo-256.png" alt=""><span>${esc(S.shop.cfg.shopName)}</span></div>${items.map(([h, i, l]) => `<a href="${h}" data-nav="${h}">${i} <span>${l}</span></a>`).join('')}</aside>
+    <div class="content"><header class="top"><img class="top-logo" src="img/logo-256.png" alt=""><b class="ttl">${esc(S.shop.cfg.shopName)}</b><span class="grow"></span><span class="role">${S.shop.role === 'admin' ? '👑' : '🧑‍💼'}</span>
+      <button class="ic" id="themeTop" title="Light / Dark">${themeIcon()}</button><button class="ic" id="langTop">${S.lang === 'en' ? 'اردو' : 'EN'}</button><button class="ic" id="lockTop" title="${t('lock')}">🔒</button></header>
       <main id="main"></main></div>
-    <nav class="bottom">${primary.map(([h, i, l]) => `<a href="${h}" data-nav="${h}">${i}<span>${l}</span></a>`).join('')}<a href="#/settings" data-nav="#/settings">⋯<span>${t('more')}</span></a></nav></div>`;
-  $('#lockTop').onclick = showLock; $('#langTop').onclick = () => { setLang(S.lang === 'en' ? 'ur' : 'en'); startApp(); };
-  $('#syncBtn').onclick = () => acts.syncNow();
-  render(); resetIdle(); setupAutoSync();
+    <nav class="bottom">${primary.map(([h, i, l]) => `<a href="${h}" data-nav="${h}">${i}<span>${l}</span></a>`).join('')}<a href="#" data-act="moreMenu">☰<span>${t('more')}</span></a></nav></div>`;
+  $('#lockTop').onclick = showLock;
+  $('#themeTop').onclick = () => { toggleTheme(browserEnv()); window.dispatchEvent(new Event('app:theme')); };
+  $('#langTop').onclick = () => { setLang(S.lang === 'en' ? 'ur' : 'en'); startApp(); };
+  render(); resetIdle();
 }
+acts.moreMenu = (el, e) => {
+  e?.preventDefault();
+  openSheet(`<h3>${t('menu')}</h3><div class="grid menu">${navItems().map(([h, i, l]) => `<a class="btn" href="${h}" data-act="closeSheet">${i} ${l}</a>`).join('')}</div>`);
+};
 
 async function render() {
   const main = $('#main'); if (!main || !S.shop.role) return;
@@ -102,7 +112,7 @@ window.addEventListener('app:refresh', render);
 const run = (table, key, el, ev) => { const f = table[el.dataset[key]]; if (f) { const r = f(el, ev); if (r && r.catch) r.catch((e) => toast(e.message, { error: true })); } };
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]'); resetIdle();
-  if (el) { if (el.tagName === 'A' && el.getAttribute('href')?.startsWith('#')) { /* let navigation happen too */ } run(acts, 'act', el, e); }
+  if (el) run(acts, 'act', el, e);
   else if (e.target.id === 'sheet') closeSheet();
 });
 document.addEventListener('input', (e) => { const el = e.target.closest('[data-in]'); resetIdle(); if (el) run(ins, 'in', el, e); });
@@ -119,19 +129,5 @@ document.addEventListener('visibilitychange', () => {
   else if (S.shop?.role && S.idleMin > 0 && S.hiddenAt && Date.now() - S.hiddenAt > S.idleMin * 60000) showLock();
 });
 
-// ---------- auto sync ----------
-function setupAutoSync() {
-  clearInterval(autoTimer);
-  const go = async () => {
-    if (localStorage.getItem('autoSync') === '0' || !S.shop.role || !(await S.sync.signedIn())) return;
-    const r = await S.sync.syncNow();
-    if (!r.error && r.pulled > 0) render();
-    const b = $('#syncBtn'); if (b) b.classList.toggle('err', !!r.error && r.error !== 'Offline');
-  };
-  autoTimer = setInterval(go, 3 * 60000); go();
-  S.shop.onChange = () => { clearTimeout(syncTimer); syncTimer = setTimeout(go, 8000); };
-  window.addEventListener('online', go);
-}
-
 boot().catch((e) => { root.innerHTML = `<p class="bad" style="padding:20px">Startup error: ${esc(e.message)}</p>`; console.error(e); });
-void can; void attempt; void openSheet;
+void openSheet;

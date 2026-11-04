@@ -6,7 +6,7 @@ import { UNITS } from '../js/core.js';
 import { S } from '../js/ui/ctx.js';
 import { mkShop, seed } from './helpers.js';
 import { Auth } from '../js/auth.js';
-import { Sync } from '../js/sync.js';
+import * as KH from '../js/ui/khata_screen.js';
 import * as M from '../js/ui/main_screens.js';
 import * as K from '../js/ui/stock_screens.js';
 import * as O from '../js/ui/ops_screens.js';
@@ -33,12 +33,13 @@ test('every translation key used in the code exists in English AND Urdu', () => 
 
 test('every data-act / data-in / data-chg used in HTML has a handler', async () => {
   const { acts, ins, chg } = await import('../js/ui/ctx.js');
-  await import('../js/ui/main_screens.js'); await import('../js/ui/stock_screens.js'); await import('../js/ui/ops_screens.js'); await import('../js/ui/settings_screen.js');
+  await import('../js/ui/main_screens.js'); await import('../js/ui/khata_screen.js'); await import('../js/ui/backup_actions.js'); await import('../js/ui/stock_screens.js'); await import('../js/ui/ops_screens.js'); await import('../js/ui/settings_screen.js');
   const data = (attr) => new Set([...src.matchAll(new RegExp(`data-${attr}=\\\\?"([A-Za-z]+)\\\\?"`, 'g'))].map((m) => m[1]));
   const btns = new Set([...src.matchAll(/\bbtn\('([A-Za-z]+)'/g)].map((m) => m[1]));
   const used = (attr) => (attr === 'act' ? new Set([...data('act'), ...btns]) : data(attr));
   const missing = [];
-  for (const a of used('act')) if (!acts[a]) missing.push(`act:${a}`);
+  const inAppJs = new Set(['moreMenu']);                      // registered in app.js (needs the real DOM)
+  for (const a of used('act')) if (!acts[a] && !inAppJs.has(a)) missing.push(`act:${a}`);
   for (const a of used('in')) if (!ins[a]) missing.push(`in:${a}`);
   for (const a of used('chg')) if (!chg[a]) missing.push(`chg:${a}`);
   assert.deepEqual(missing, []);
@@ -46,8 +47,8 @@ test('every data-act / data-in / data-chg used in HTML has a handler', async () 
 
 async function ready(role = 'admin') {
   const shop = await mkShop(); const ids = await seed(shop);
-  S.shop = shop; S.auth = new Auth(shop.store, { iterations: 1000 }); S.sync = new Sync(shop, { fetchFn: async () => ({ ok: false }) });
-  S.cart = null; S.purchase = null; S.lang = 'en';
+  S.shop = shop; S.auth = new Auth(shop.store, { iterations: 1000 });
+  S.cart = null; S.purchase = null; S.khata = null; S.lang = 'en';
   await shop.postSale({ customerId: ids.ali.id, lines: [{ productId: ids.paris.id, amount: 1500 }, { productId: ids.bulb.id, qty: 2000 }], payments: [{ account: 'cash', amount: 20000 }] });
   await shop.saveEstimate({ lines: [{ productId: ids.wire.id, unit: 'ft', qty: 10000 }] });
   const stool = await shop.saveRentalItem({ name: 'Stool', total: 10, rate: 5000, deposit: 10000 });
@@ -67,7 +68,7 @@ for (const lang of ['en', 'ur']) {
       dashboard: await M.dashboard(), pos: await M.pos(), sales: await M.salesList(q()), estimates: await M.salesList(q('tab=estimates')),
       sale: await M.saleDetail(sale.id), est: await M.saleDetail(est.id), items: await K.itemsList(), itemNew: await K.itemForm('new'), item: await K.itemForm(ids.paris.id),
       customers: await K.partyList('customer'), customer: await K.partyDetail('customer', ids.ali.id), suppliers: await K.partyList('supplier'), supplier: await K.partyDetail('supplier', ids.sup.id),
-      purchase: await K.purchaseScreen(q()), rentals: await O.rentalsScreen(), rentalNew: await O.rentalNew(), expenses: await O.expensesScreen(), reports: await O.reportsScreen(), settings: await settingsScreen(),
+      khata: await KH.khataScreen(), purchase: await K.purchaseScreen(q()), rentals: await O.rentalsScreen(), rentalNew: await O.rentalNew(), expenses: await O.expensesScreen(), reports: await O.reportsScreen(), settings: await settingsScreen(),
     };
     for (const [name, html] of Object.entries(pages)) { assert.ok(html.length > 50, name); assert.ok(!/undefined|\[object Object\]|NaN/.test(html), `${name} contains junk: ${html.match(/.{30}(undefined|\[object Object\]|NaN).{30}/)?.[0]}`); }
     assert.match(pages.dashboard, /RAMZAN ELECTRIC STORE &amp; HARDWARE/);

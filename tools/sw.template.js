@@ -5,7 +5,7 @@ self.addEventListener('install', (e) => { e.waitUntil(caches.open(VERSION).then(
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== VERSION).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
-// App files: cache first (works fully offline). Cloud (Supabase) requests are never touched.
+// App files: cache first (works fully offline). Requests to other sites (e.g. Google Drive) are never touched.
 self.addEventListener('fetch', (e) => {
   const u = new URL(e.request.url);
   if (e.request.method !== 'GET' || u.origin !== location.origin) return;

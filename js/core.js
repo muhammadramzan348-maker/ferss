@@ -79,7 +79,36 @@ export function priceFor(p, unit, mode = 'retail') {
   return mulDiv(list, fu.num * fs.den, fu.den * fs.num);
 }
 
+/** Friendly quantity input: "0.25", "250", "1/4", "1 1/2", "½", "1½". Exact (no floating point). */
+export function parseQtyLoose(input) {
+  let s = String(input ?? '').trim().replace(/,/g, '.');
+  const uni = { '½': ' 1/2', '¼': ' 1/4', '¾': ' 3/4', '⅓': ' 1/3', '⅔': ' 2/3', '⅛': ' 1/8' };
+  s = s.replace(/[½¼¾⅓⅔⅛]/g, (c) => uni[c]).trim().replace(/\s+/g, ' ');
+  let m;
+  if ((m = /^(\d+)(?:\.(\d+))?$/.exec(s))) {
+    const f = m[2] || '';
+    let v = Number(m[1]) * 1000 + Number(f.padEnd(3, '0').slice(0, 3));
+    if (f.length > 3 && f[3] >= '5') v += 1;
+    return v;
+  }
+  if ((m = /^(\d+) (\d+)\/(\d+)$/.exec(s)) && Number(m[3])) return Number(m[1]) * 1000 + mulDiv(Number(m[2]), 1000, Number(m[3]));
+  if ((m = /^(\d+)\/(\d+)$/.exec(s)) && Number(m[2])) return mulDiv(Number(m[1]), 1000, Number(m[2]));
+  throw new Error(`Invalid quantity: "${input}"`);
+}
+
 // ---------- pricing ----------
+/** List price (paise) per SELL unit, e.g. Rs 15 per kg. Never rounded per smaller unit. */
+export function listPrice(p, mode = 'retail') {
+  return mode === 'wholesale' && p.wholesalePrice > 0 ? p.wholesalePrice : p.retailPrice;
+}
+/**
+ * Exact line amount: qty (thousandths of [unit]) x price per SELL unit, with a single rounding at the end.
+ * Rs 15/kg x 250 g = Rs 3.75 (375 paise) - not Rs 5 from a rounded per-gram price.
+ */
+export function lineGross(p, qty, unit, sellPrice) {
+  const fu = unitFactor(p, unit), fs = unitFactor(p, p.sellUnit);
+  return mulDiv(BigInt(qty) * BigInt(fu.num) * BigInt(fs.den), sellPrice, 1000n * BigInt(fu.den) * BigInt(fs.num));
+}
 export const lineAmount = (qty, price) => mulDiv(qty, price, 1000);
 /** Reverse calculator: "Rs 15 of Paris at Rs 60/kg" -> 0.250 kg */
 export function qtyForAmount(amountPaise, pricePerUnit) {

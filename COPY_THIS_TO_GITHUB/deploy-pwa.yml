@@ -1,0 +1,59 @@
+name: Test and deploy PWA
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+env:
+  # Folder that contains index.html. If the files are at the repository root, change this to "."
+  APP_DIR: ramzan_pwa
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.APP_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check required files
+        run: |
+          for f in index.html manifest.webmanifest js/app.js js/db.js css/app.css tools/gen_sw.py; do
+            [ -f "$f" ] || { echo "::error::Missing $APP_DIR/$f"; exit 1; }
+          done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run all tests
+        run: node --test
+      - name: Generate offline cache list (sw.js)
+        run: python3 tools/gen_sw.py
+      - name: Collect site files
+        run: |
+          mkdir _site
+          cp -r index.html manifest.webmanifest sw.js css js icons _site/
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ env.APP_DIR }}/_site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

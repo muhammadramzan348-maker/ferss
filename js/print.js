@@ -4,10 +4,12 @@ import { fmtRs, fmtQty, fmtDateTime, waLink, esc } from './core.js';
 
 // ---------- document rows (language-independent structure) ----------
 /** L(key) -> label. Returns rows consumed by layoutRows(). */
-export function receiptRows(shop, sale, L, lang = 'en') {
+export function receiptRows(shop, sale, L, lang = 'en', { logo = null, logoFrac = 0.3 } = {}) {
   const cfg = shop.cfg, ur = lang === 'ur';
   const cust = sale.customerId ? shop.customers.get(sale.customerId) : null;
-  const rows = [{ t: 'center', text: cfg.shopName, size: 1.5, bold: true }];
+  const rows = [];
+  if (logo) rows.push({ t: 'image', img: logo, frac: logoFrac });
+  rows.push({ t: 'center', text: cfg.shopName, size: 1.5, bold: true });
   if (cfg.shopAddress) rows.push({ t: 'center', text: cfg.shopAddress, size: 0.85 });
   if (cfg.shopPhone) rows.push({ t: 'center', text: `${L('phone')}: ${cfg.shopPhone}`, size: 0.85 });
   rows.push({ t: 'line' });
@@ -19,7 +21,8 @@ export function receiptRows(shop, sale, L, lang = 'en') {
   for (const l of sale.lines) {
     rows.push({ t: 'text', text: `${ur && l.nameUr ? l.nameUr : l.name}${l.size ? ' ' + l.size : ''}`, bold: true });
     const unit = L(`unit_${l.unit}`);
-    rows.push({ t: 'lr', l: `${fmtQty(l.qty)} ${unit} × ${fmtRs(l.price, { sym: false })}`, r: fmtRs(l.gross, { sym: false }), size: 0.9 });
+    if (l.note) rows.push({ t: 'text', text: `» ${l.note}`, size: 0.85 });
+    rows.push({ t: 'lr', l: `${fmtQty(l.qty)} ${unit} × ${fmtRs(l.price, { sym: false })}/${L(`unit_${l.priceUnit || l.unit}`)}`, r: fmtRs(l.gross, { sym: false }), size: 0.9 });
     if (l.discount) rows.push({ t: 'lr', l: L('discount'), r: `-${fmtRs(l.discount, { sym: false })}`, size: 0.9 });
   }
   rows.push({ t: 'line' });
@@ -55,6 +58,7 @@ export function layoutRows(measure, rows, W, { base = 22, pad = 10, lang = 'en' 
     const f = font(r), lh = Math.round(base * (r.size || 1) * 1.35), inner = W - 2 * pad;
     if (r.t === 'line') { ops.push({ k: 'line', y: y + 6, x1: pad, x2: W - pad }); y += 14; }
     else if (r.t === 'space') y += r.h;
+    else if (r.t === 'image') { const w = Math.round(W * r.frac), h = Math.round((w * r.img.height) / r.img.width); ops.push({ k: 'img', img: r.img, x: Math.round((W - w) / 2), y, w, h }); y += h + 8; }
     else if (r.t === 'center') for (const ln of wrap(f, r.text, inner)) { ops.push({ k: 'text', f, text: ln, x: W / 2, y: y + lh * 0.8, align: 'center' }); y += lh; }
     else if (r.t === 'text') for (const ln of wrap(f, r.text, inner)) { ops.push({ k: 'text', f, text: ln, x: ur ? W - pad : pad, y: y + lh * 0.8, align: ur ? 'right' : 'left' }); y += lh; }
     else if (r.t === 'lr') {
@@ -73,6 +77,7 @@ export function paint(ctx, layout, W, rtl = false) {
   ctx.fillStyle = '#000'; ctx.strokeStyle = '#000'; ctx.textBaseline = 'alphabetic';
   for (const o of layout.ops) {
     if (o.k === 'line') { ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(o.x1, o.y); ctx.lineTo(o.x2, o.y); ctx.stroke(); }
+    else if (o.k === 'img') ctx.drawImage(o.img, o.x, o.y, o.w, o.h);
     else { ctx.font = o.f; ctx.textAlign = o.align; ctx.direction = rtl ? 'rtl' : 'ltr'; ctx.fillText(o.text, o.x, o.y); }
   }
 }
