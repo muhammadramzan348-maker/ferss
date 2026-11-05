@@ -49,7 +49,7 @@ export async function itemForm(id) {
     <h2>${p ? esc(p.name) : t('add_item')}</h2>
     ${p ? `<div class="li"><span>${t('stock')}</span><b>${qtyText(p, st.qty)}</b></div>${isAdmin() ? `<div class="li"><span>${t('avg_cost')}</span><b>${money(S.shop.avgCost(p.id))}/${unitName(p.baseUnit)}</b></div><div class="li"><span>${t('stock_value')}</span><b>${money(st.value)}</b></div>` : ''}` : ''}
     <fieldset ${admin ? '' : 'disabled'}>
-    ${field('name', t('name') + ' (English)', p?.name)}${field('nameUr', t('name') + ' (اردو)', p?.nameUr, { attrs: 'dir="rtl"' })}
+    ${field('name', t('name') + ' (English)', p?.name)}${field('nameUr', t('name') + ' (Roman Urdu)', p?.nameUr)}
     <div class="row">${field('sku', t('sku'), p?.sku, { cls: 'grow' })}${field('barcode', t('barcode'), p?.barcode, { cls: 'grow' })}</div>
     ${select('category', t('category'), [['', '—'], ...cats], p?.category)}
     <div class="row">${field('brand', t('brand'), p?.brand, { cls: 'grow' })}${field('size', t('size'), p?.size, { cls: 'grow' })}</div>

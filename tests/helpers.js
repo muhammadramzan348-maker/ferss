@@ -11,7 +11,7 @@ export async function mkShop({ code = 'A', store = new MemoryStore(), clock = { 
   return shop;
 }
 export async function seed(shop) {
-  const paris = await shop.saveProduct({ name: 'Paris (Gypsum)', nameUr: 'پیرس', baseUnit: 'kg', sellUnit: 'kg',
+  const paris = await shop.saveProduct({ name: 'Paris (Gypsum)', nameUr: 'Paris Powder', baseUnit: 'kg', sellUnit: 'kg',
     units: [{ unit: 'g', num: 1, den: 1000 }], retailPrice: 6000, wholesalePrice: 5500, category: 'cat-building', minStock: 2000 },
   { openingQty: 10000, openingValue: 45000 });                  // 10 kg @ Rs 45
   const bulb = await shop.saveProduct({ name: 'LED Bulb 12W', baseUnit: 'pc', sellUnit: 'pc', units: [{ unit: 'dozen', num: 12, den: 1 }],

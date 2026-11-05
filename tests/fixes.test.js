@@ -16,7 +16,7 @@ const t = (k) => dict.en[k] ?? k;
 
 async function shopWith(price = 1500) {
   const shop = await mkShop();
-  const poppy = await shop.saveProduct({ name: 'Plaster of Paris', nameUr: 'پلاسٹر آف پیرس', baseUnit: 'kg', sellUnit: 'kg', units: [{ unit: 'g', num: 1, den: 1000 }], retailPrice: price }, { openingQty: 50000, openingValue: 50000 * 1000 / 1000 * 0.6 | 0 });
+  const poppy = await shop.saveProduct({ name: 'Plaster of Paris', nameUr: 'Paris Plaster', baseUnit: 'kg', sellUnit: 'kg', units: [{ unit: 'g', num: 1, den: 1000 }], retailPrice: price }, { openingQty: 50000, openingValue: 50000 * 1000 / 1000 * 0.6 | 0 });
   const bulb = await shop.saveProduct({ name: 'LED Bulb', baseUnit: 'pc', sellUnit: 'pc', retailPrice: 25000 }, { openingQty: 100000, openingValue: 1800000 });
   S.shop = shop; S.cart = null; S.khata = null; S.lang = 'en'; S.lineCtx = null; dom.reset();
   return { shop, poppy, bulb };

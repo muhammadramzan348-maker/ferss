@@ -40,9 +40,9 @@ export function receiptRows(shop, sale, L, lang = 'en', { logo = null, logoFrac 
 }
 
 // ---------- layout (pure; measure(font,text) injected so it is testable) ----------
-export const FONT = '"Noto Naskh Arabic","Noto Nastaliq Urdu","Segoe UI",Roboto,Arial,sans-serif';
+export const FONT = '"Segoe UI",Roboto,Arial,sans-serif';
 export function layoutRows(measure, rows, W, { base = 22, pad = 10, lang = 'en' } = {}) {
-  const ur = lang === 'ur', ops = [];
+  const ur = false, ops = [];                 // Roman Urdu is left-to-right, same layout as English
   let y = pad;
   const font = (r) => `${r.bold ? 'bold ' : ''}${Math.round(base * (r.size || 1))}px ${FONT}`;
   const wrap = (f, text, maxW) => {
@@ -87,7 +87,7 @@ export function renderRows(createCanvas, rows, { widthPx = 576, lang = 'en', bas
   const measure = (f, t) => { m.font = f; return m.measureText(t).width; };
   const layout = layoutRows(measure, rows, widthPx, { base, lang });
   const canvas = createCanvas(widthPx, layout.height), ctx = canvas.getContext('2d');
-  paint(ctx, layout, widthPx, lang === 'ur');
+  paint(ctx, layout, widthPx, false);
   return { canvas, ctx, width: widthPx, height: layout.height };
 }
 export const paperPx = (mm) => (String(mm) === '58' ? 384 : 576);
@@ -170,7 +170,7 @@ export function renderA4Pages(createCanvas, rows, lang = 'en') {
       const y = o.k === 'line' ? o.y : o.y;
       if (y >= top && y < top + slice) ops.push({ ...o, y: o.k === 'line' ? o.y - top + 40 : o.y - top + 40 });
     }
-    paint(ctx, { ops, height: PH }, W, lang === 'ur');
+    paint(ctx, { ops, height: PH }, W, false);
     pages.push(c);
   }
   return pages;

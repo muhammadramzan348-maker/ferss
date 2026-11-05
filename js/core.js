@@ -42,11 +42,11 @@ export function fmtQty(milli) {
 }
 
 // ---------- units ----------
-export const UNITS = {
-  kg: { en: 'Kg', ur: 'کلو' }, g: { en: 'Gram', ur: 'گرام' }, m: { en: 'Meter', ur: 'میٹر' },
-  ft: { en: 'Foot', ur: 'فٹ' }, pc: { en: 'Piece', ur: 'عدد' }, coil: { en: 'Coil', ur: 'کوائل' },
-  bag: { en: 'Bag', ur: 'بوری' }, bundle: { en: 'Bundle', ur: 'بنڈل' }, box: { en: 'Box', ur: 'ڈبہ' },
-  ltr: { en: 'Liter', ur: 'لیٹر' }, set: { en: 'Set', ur: 'سیٹ' }, dozen: { en: 'Dozen', ur: 'درجن' },
+export const UNITS = {   // en = English, ur = Roman Urdu
+  kg: { en: 'Kg', ur: 'Kilo' }, g: { en: 'Gram', ur: 'Gram' }, m: { en: 'Meter', ur: 'Meter' },
+  ft: { en: 'Foot', ur: 'Foot' }, pc: { en: 'Piece', ur: 'Adad' }, coil: { en: 'Coil', ur: 'Coil' },
+  bag: { en: 'Bag', ur: 'Bori' }, bundle: { en: 'Bundle', ur: 'Bundle' }, box: { en: 'Box', ur: 'Dabba' },
+  ltr: { en: 'Liter', ur: 'Liter' }, set: { en: 'Set', ur: 'Set' }, dozen: { en: 'Dozen', ur: 'Darjan' },
 };
 /** Suggested extra units: 1 unit = num/den base units (exact). */
 export function presetUnits(base) {
@@ -159,6 +159,33 @@ export function rentalUnits(outMs, retMs, rateType, graceMin = 30) {
   const mins = Math.ceil((retMs - outMs) / 60000);
   const per = rateType === 'hour' ? 60 : 1440;
   return Math.max(1, Math.ceil(Math.max(0, mins - graceMin) / per));
+}
+
+// ---------- date-wise rental ----------
+/**
+ * Date-wise rent: every calendar day (Pakistan time) from the day it was given up to and including the day it came back
+ * is charged. Given on the 4th, back on the 5th = 2 days. Back the same day = 1 day.
+ */
+export function rentalDays(outMs, retMs) {
+  const d = Math.round((pktDayStart(retMs) - pktDayStart(outMs)) / 86400000);
+  if (d < 0) throw new Error('Return date is before the date it was given');
+  return d + 1;
+}
+/** start (PKT midnight) of each charged day */
+export function rentalDayList(outMs, retMs) {
+  const n = rentalDays(outMs, retMs), first = pktDayStart(outMs);
+  return Array.from({ length: n }, (_, i) => first + i * 86400000);
+}
+/**
+ * "YYYY-MM-DD" (a date picked in the app) -> timestamp. Today keeps the real time; another day becomes 12:00 noon.
+ * `notBefore` keeps a same-day return after the moment it was given. Future dates are refused.
+ */
+export function dateToTs(dateStr, now, notBefore = 0) {
+  const start = Date.parse(`${String(dateStr).trim()}T00:00:00Z`) - 5 * 3600000;
+  if (Number.isNaN(start)) throw new Error('Please choose a valid date');
+  if (start > pktDayStart(now)) throw new Error('The date cannot be in the future');
+  if (start === pktDayStart(now)) return Math.max(now, notBefore);
+  return start === pktDayStart(notBefore) ? Math.max(start + 12 * 3600000, notBefore) : start + 12 * 3600000;
 }
 
 // ---------- time (Pakistan = UTC+5, no DST) ----------

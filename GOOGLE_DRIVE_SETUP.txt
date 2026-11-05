@@ -19,6 +19,8 @@ GOOGLE DRIVE BACKUP KI SETTING (sirf ek dafa, free hai)
 
 Zaroori baatein
 * App sirf wahi files dekh sakti hai jo usne khud banayi hain ("drive.file" scope); aap ki baqi Drive nahi.
-* Aakhri 10 backups rakhe jate hain, purane khud hat jate hain.
-* Backup file Drive mein plain JSON hai (Ramzan-Store-Backup-2026-11-03_1405.json). Isay kisi ko na dein.
+* Drive mein HAMESHA sirf EK file hoti hai: ramzan_store_backup.json. Har naye backup par wahi file update (overwrite) hoti hai,
+  nayi file nahi banti. Purani tareekh wali files (Ramzan-Store-Backup-....json) aur duplicates khud hat jate hain.
+  Restore par sirf sab se latest backup nazar aata hai.
+* Backup file Drive mein plain JSON hai (ramzan_store_backup.json). Isay kisi ko na dein.
 * Har hafte backup lein; dashboard par 7 din se purana backup hone par yaad-dahani aati hai.

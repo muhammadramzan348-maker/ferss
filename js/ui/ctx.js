@@ -4,6 +4,8 @@ export { esc };
 import { dict } from '../i18n.js';
 
 export const S = { shop: null, auth: null, lang: 'en', cart: null, purchase: null, rental: null, khata: null, lineCtx: null, idleMin: 5 };
+/** remember when a backup was last taken (Drive or file) */
+export const markBackup = () => { if (typeof localStorage !== 'undefined') { const n = String(Date.now()); localStorage.setItem('lastBackup', n); localStorage.setItem('lastDriveBackup', n); } };
 /** read a local (per-phone) preference */
 export const lp = (k, d) => (typeof localStorage === 'undefined' ? d : localStorage.getItem(k) ?? d);
 export const acts = {}, ins = {}, chg = {};          // delegated handlers: data-act / data-in / data-chg

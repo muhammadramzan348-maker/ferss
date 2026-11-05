@@ -1,4 +1,4 @@
-import { esc, fmtQty, fmtDateTime, fmtDate, parseRs, pktDayStart, pktParts, mulDiv, periodKey } from '../core.js';
+import { esc, fmtQty, fmtDateTime, fmtDate, parseRs, pktDayStart, pktParts, mulDiv, periodKey, dateToTs, rentalDays } from '../core.js';
 import { S, acts, ins, chg, t, money, can, isAdmin, unitName, field, select, btn, table, accountOptions,
   openSheet, closeSheet, sheetEl, formData, attempt, toast, go, refresh, ask, $, dateInput, parseDateInput } from './ctx.js';
 import { ACCOUNTS } from '../db.js';
@@ -7,29 +7,35 @@ import { waLink } from '../core.js';
 const safeRs = (s) => { try { return s ? parseRs(s) : 0; } catch { return 0; } };
 const DAY = 86400000;
 
-// ================= RENTALS =================
+// ================= RENTALS (date-wise) =================
+// Rent is charged for every calendar day: given on the 4th and back on the 5th = 2 days (the 4th and the 5th).
 const rq = { tab: 'active' };
+const rateLabel = (i) => `${money(i.rate)}/${t(i.rateType === 'hour' ? 'per_hour' : 'per_day')}`;
+const dayTable = (rows) => table([t('date'), t('amount')], rows.map((r) => [fmtDate(r.day), money(r.amount)]), { right: [1] });
+const perItemLines = (detail) => detail.map((d) => `<div class="li"><span>${d.qty} × ${esc(d.name)}<br><small>${d.units} ${d.rateType === 'hour' ? t('per_hour') : t('days_word')} × ${money(d.rate)}</small></span><b>${money(d.charge)}</b></div>`).join('');
+
 export async function rentalsScreen() {
-  const items = [...S.shop.rentalItems.values()].filter((i) => i.active);
-  const now = S.shop.now();
+  const items = [...S.shop.rentalItems.values()].filter((i) => i.active), now = S.shop.now();
   let body = '';
   if (rq.tab === 'active') {
     const list = S.shop.activeRentals();
-    body = list.map((r) => { const pv = S.shop.rentalPreview(r, null, now), late = r.dueAt && r.dueAt < now;
-      return `<div class="card ${late ? 'late' : ''}"><div class="row"><b class="grow">${esc(r.customerName)}</b><small>${esc(r.no)}</small></div>
-        <div class="sub">${esc(r.phone)} · ${fmtDateTime(r.outAt)}${r.dueAt ? ` → ${fmtDateTime(r.dueAt)}` : ''} ${late ? `<b class="bad">${t('overdue')}</b>` : ''}</div>
-        ${r.items.map((i) => `<div class="li"><span>${esc(i.name)}</span><b>${i.qty - i.returned} / ${i.qty} <small>@ ${money(i.rate)}/${t(i.rateType === 'hour' ? 'per_hour' : 'per_day')}</small></b></div>`).join('')}
-        <div class="li"><span>${t('accrued')}</span><b class="warn">${money(pv.charge)}</b></div><div class="li"><span>${t('deposit_held')}</span><b>${money(r.depositHeld)}</b></div>
+    body = list.map((r) => {
+      const pv = S.shop.rentalPreview(r, null, now), late = r.dueAt && r.dueAt < now, days = rentalDays(r.outAt, now);
+      return `<div class="card ${late ? 'late' : ''}"><div class="row"><a class="grow" href="#/rental/${r.id}"><b>${esc(r.customerName)}</b></a><small>${esc(r.no)}</small></div>
+        <div class="sub">${esc(r.phone)} · ${t('given_on')}: <b>${fmtDate(r.outAt)}</b> · ${t('day_no')} ${days} ${late ? `· <b class="bad">${t('overdue')}</b>` : ''}</div>
+        ${r.items.filter((i) => i.qty > i.returned).map((i) => `<div class="li"><span>${esc(i.name)}</span><b>${i.qty - i.returned} × <small>${rateLabel(i)}</small></b></div>`).join('')}
+        <div class="li"><span>${t('rent_so_far_today')} (${days} ${t('days_word')})</span><b class="warn">${money(pv.charge)}</b></div><div class="li"><span>${t('deposit_held')}</span><b>${money(r.depositHeld)}</b></div>
         ${r.idNote ? `<div class="sub">🪪 ${esc(r.idNote)}</div>` : ''}
-        <div class="row wrap">${btn('returnRental', '↩ ' + t('return_items'), { cls: 'pri', data: { id: r.id } })}
-        ${r.phone ? `<a class="btn" target="_blank" href="${waLink(r.phone, S.shop.rentalReminderText(r, S.lang))}">💬 ${t('send_reminder')}</a><a class="btn" href="tel:${esc(r.phone)}">📞</a>` : ''}</div></div>`; }).join('') || `<p class="empty">${t('no_active_rentals')}</p>`;
+        <div class="row wrap">${btn('returnRental', '↩ ' + t('return_items'), { cls: 'pri', data: { id: r.id } })}<a class="btn" href="#/rental/${r.id}">${t('rental_details')}</a>
+        ${r.phone ? `<a class="btn" target="_blank" href="${waLink(r.phone, S.shop.rentalReminderText(r, S.lang))}">💬 ${t('send_reminder')}</a><a class="btn" href="tel:${esc(r.phone)}">📞</a>` : ''}</div></div>`;
+    }).join('') || `<p class="empty">${t('no_active_rentals')}</p>`;
   } else if (rq.tab === 'items') {
-    body = `<div class="card">${items.map((i) => `<div class="li"><span><b>${esc(S.lang === 'ur' && i.nameUr ? i.nameUr : i.name)}</b><br><small>${money(i.rate)}/${t(i.rateType === 'hour' ? 'per_hour' : 'per_day')} · ${t('deposit')} ${money(i.deposit)}</small></span>
+    body = `<div class="card">${items.map((i) => `<div class="li"><span><b>${esc(S.lang === 'ur' && i.nameUr ? i.nameUr : i.name)}</b><br><small>${rateLabel(i)} · ${t('deposit')} ${money(i.deposit)}</small></span>
       <span class="r"><b>${S.shop.availability(i.id)} / ${i.total}</b><small> ${t('available')}</small>${isAdmin() ? `<br>${btn('editRentalItem', '✎', { cls: 'link', data: { id: i.id } })}` : ''}</span></div>`).join('') || `<p class="empty">${t('empty')}</p>`}
       ${isAdmin() ? btn('editRentalItem', '＋ ' + t('add_rental_item'), { cls: 'pri', data: { id: '' } }) : ''}</div>`;
   } else {
-    const done = [...S.shop.rentals.values()].filter((r) => r.status === 'returned').sort((a, b) => b.closedAt - a.closedAt).slice(0, 40);
-    body = `<div class="card">${done.map((r) => `<div class="li"><span><b>${esc(r.customerName)}</b> <small>${esc(r.no)} · ${fmtDate(r.closedAt)}</small></span><b>${money(r.charges)}</b></div>`).join('') || `<p class="empty">${t('empty')}</p>`}</div>`;
+    const done = [...S.shop.rentals.values()].filter((r) => r.status === 'returned').sort((a, b) => b.closedAt - a.closedAt).slice(0, 60);
+    body = `<div class="card">${done.map((r) => `<a class="li link" href="#/rental/${r.id}"><span><b>${esc(r.customerName)}</b> <small>${esc(r.no)}</small><br><small>${fmtDate(r.outAt)} → ${fmtDate(r.closedAt)} · ${rentalDays(r.outAt, r.closedAt)} ${t('days_word')}</small></span><b>${money(r.charges)}</b></a>`).join('') || `<p class="empty">${t('empty')}</p>`}</div>`;
   }
   return `<div class="row"><h2 class="grow">${t('rentals')}</h2><a class="btn pri" href="#/rental/new">＋ ${t('new_rental')}</a></div>
   <div class="seg wide">${['active', 'items', 'history'].map((k) => `<button class="${rq.tab === k ? 'on' : ''}" data-act="rentTab" data-k="${k}">${t(`rtab_${k}`)}</button>`).join('')}</div>${body}`;
@@ -37,9 +43,9 @@ export async function rentalsScreen() {
 acts.rentTab = (el) => { rq.tab = el.dataset.k; refresh(); };
 acts.editRentalItem = (el) => {
   const i = el.dataset.id ? S.shop.rentalItems.get(el.dataset.id) : null;
-  openSheet(`<h3>${i ? t('edit') : t('add_rental_item')}</h3>${field('name', t('name'), i?.name)}${field('nameUr', t('name') + ' (اردو)', i?.nameUr, { attrs: 'dir="rtl"' })}
+  openSheet(`<h3>${i ? t('edit') : t('add_rental_item')}</h3>${field('name', t('name'), i?.name)}${field('nameUr', t('name') + ' (Roman Urdu)', i?.nameUr)}
     ${field('total', t('total_qty'), i?.total ?? '', { attrs: 'inputmode="numeric"' })}${select('rateType', t('rate_type'), [['day', t('per_day')], ['hour', t('per_hour')]], i?.rateType || 'day')}
-    ${field('rate', t('rate'), i ? String(i.rate / 100) : '', { attrs: 'inputmode="decimal"' })}${field('deposit', t('deposit') + ' (' + t('default') + ')', i ? String(i.deposit / 100) : '', { attrs: 'inputmode="decimal"' })}
+    ${field('rate', t('rate'), i ? (i.rate / 100).toFixed(2) : '', { attrs: 'inputmode="decimal"' })}${field('deposit', t('deposit') + ' (' + t('default') + ')', i ? (i.deposit / 100).toFixed(2) : '', { attrs: 'inputmode="decimal"' })}
     ${btn('saveRentalItem', t('save'), { cls: 'pri big', data: { id: i?.id || '' } })}`);
 };
 acts.saveRentalItem = (el) => attempt(async () => {
@@ -49,30 +55,34 @@ acts.saveRentalItem = (el) => attempt(async () => {
 });
 
 export async function rentalNew() {
-  const items = [...S.shop.rentalItems.values()].filter((i) => i.active);
+  const items = [...S.shop.rentalItems.values()].filter((i) => i.active), today = dateInput(S.shop.now());
   S.rental ||= {};
   return `<a href="#/rentals" class="back">← ${t('rentals')}</a><div class="card" id="rentalForm"><h2>${t('new_rental')}</h2>
-    ${field('customerName', t('customer_name'))}${field('phone', t('phone'), '', { type: 'tel' })}
+    ${field('customerName', t('customer_name'))}${field('phone', t('phone'), '', { type: 'tel' })}${field('address', t('address'))}
     ${select('customerId', t('link_khata'), [['', '—'], ...[...S.shop.customers.values()].map((c) => [c.id, c.name])])}
-    <h4>${t('items')}</h4>${items.map((i) => `<div class="li"><span><b>${esc(S.lang === 'ur' && i.nameUr ? i.nameUr : i.name)}</b><br><small>${money(i.rate)}/${t(i.rateType === 'hour' ? 'per_hour' : 'per_day')} · ${t('available')} ${S.shop.availability(i.id)}</small></span>
+    ${field('outDate', t('given_on'), today, { type: 'date', attrs: `max="${today}"` })}
+    <h4>${t('items')}</h4>${items.map((i) => `<div class="li"><span><b>${esc(S.lang === 'ur' && i.nameUr ? i.nameUr : i.name)}</b><br><small>${rateLabel(i)} · ${t('available')} ${S.shop.availability(i.id)}</small></span>
       <input class="qty" name="q_${i.id}" inputmode="numeric" placeholder="0"></div>`).join('') || `<p class="empty">${t('add_rental_first')}</p>`}
     <div class="row">${field('deposit', t('security_deposit'), '', { attrs: 'inputmode="decimal"', cls: 'grow' })}${select('account', t('account'), accountOptions(), 'cash')}</div>
-    ${field('idNote', t('id_kept'), '', { attrs: 'placeholder="CNIC / licence / …"' })}
-    ${field('dueAt', t('expected_return'), '', { type: 'datetime-local' })}${field('note', t('note'))}
+    ${field('idNote', t('id_kept'), '', { attrs: 'placeholder="CNIC / licence / …"' })}${field('note', t('note'))}
     ${btn('saveRental', '✔ ' + t('give_on_rent'), { cls: 'pri big' })}</div>`;
 }
 acts.saveRental = () => attempt(async () => {
   const f = formData($('#rentalForm')), items = [...S.shop.rentalItems.values()].map((i) => ({ itemId: i.id, qty: Number(f[`q_${i.id}`] || 0) })).filter((i) => i.qty > 0);
-  const dueAt = f.dueAt ? Date.parse(f.dueAt + 'Z') - 5 * 3600000 : null;
-  const r = await S.shop.checkoutRental({ customerId: f.customerId || null, customerName: f.customerName, phone: f.phone, items, deposit: safeRs(f.deposit), account: f.account, idNote: f.idNote, note: f.note, dueAt });
+  const at = dateToTs(f.outDate, S.shop.now());
+  const r = await S.shop.checkoutRental({ customerId: f.customerId || null, customerName: f.customerName, phone: f.phone, address: f.address, items, deposit: safeRs(f.deposit), account: f.account, idNote: f.idNote, note: f.note, at });
   toast(`${t('saved')} ${r.no}`); rq.tab = 'active'; go('#/rentals');
 });
+
+// ----- return: pick the return date, see the date-wise rent, settle -----
 acts.returnRental = (el) => {
-  const r = S.shop.rentals.get(el.dataset.id);
-  openSheet(`<h3>${t('return_items')} — ${esc(r.customerName)}</h3><div id="retForm" data-id="${r.id}">
-    ${r.items.filter((i) => i.qty > i.returned).map((i) => `<div class="li"><span>${esc(i.name)} <small>(${i.qty - i.returned})</small></span><input class="qty" name="r_${i.itemId}" data-in="retCalc" inputmode="numeric" value="${i.qty - i.returned}"></div>`).join('')}
-    <div class="li"><span>${t('charge')}</span><b id="retCharge"></b></div><div class="li"><span>${t('deposit_held')}</span><b>${money(r.depositHeld)}</b></div>
-    <div class="li"><span>${t('to_collect')}</span><b id="retDue" class="warn"></b></div>
+  const r = S.shop.rentals.get(el.dataset.id), today = dateInput(S.shop.now());
+  openSheet(`<h3>${t('return_items')} — ${esc(r.customerName)}</h3><p class="sub">${t('given_on')}: <b>${fmtDate(r.outAt)}</b></p><div id="retForm" data-id="${r.id}">
+    ${field('retDate', t('return_date'), today, { type: 'date', attrs: `min="${dateInput(r.outAt)}" max="${today}" data-in="retCalc"` })}
+    ${r.items.filter((i) => i.qty > i.returned).map((i) => `<div class="li"><span>${esc(i.name)} <small>(${i.qty - i.returned}) ${rateLabel(i)}</small></span><input class="qty" name="r_${i.itemId}" data-in="retCalc" inputmode="numeric" value="${i.qty - i.returned}"></div>`).join('')}
+    <h4>${t('rent_by_date')}</h4><div id="retDays"></div>
+    <div class="li"><b>${t('total_rent')}</b><b id="retCharge"></b></div><div class="li"><span>${t('deposit_held')}</span><b>${money(r.depositHeld)}</b></div>
+    <div class="li"><b>${t('to_collect')}</b><b id="retDue" class="warn"></b></div>
     <div class="grid pay">${ACCOUNTS.map((a) => `<label class="f"><span>${t(`acc_${a}`)}</span><input name="p_${a}" data-in="retCalc" inputmode="decimal" placeholder="0"></label>`).join('')}</div>
     <div class="li"><span>${t('udhaar')}</span><b id="retCredit"></b></div>${select('refundAccount', t('refund_from'), accountOptions(), 'cash')}
     ${btn('doReturn', '✔ ' + t('return_items'), { cls: 'pri big', data: { id: r.id } })}</div>`);
@@ -81,19 +91,47 @@ acts.returnRental = (el) => {
 const retItems = (r, f) => r.items.map((i) => ({ itemId: i.itemId, qty: Number(f[`r_${i.itemId}`] || 0) })).filter((x) => x.qty > 0);
 ins.retCalc = () => {
   const root = $('#retForm'); if (!root) return;
-  const r = S.shop.rentals.get(root.dataset.id), f = formData(root);
+  const r = S.shop.rentals.get(root.dataset.id), f = formData(root), days = $('#retDays');
   try {
-    const pv = S.shop.rentalPreview(r, retItems(r, f)), applied = Math.min(r.depositHeld, pv.charge), due = pv.charge - applied;
+    const at = dateToTs(f.retDate, S.shop.now(), r.outAt), pv = S.shop.rentalPreview(r, retItems(r, f), at), applied = Math.min(r.depositHeld, pv.charge), due = pv.charge - applied;
     const paid = ACCOUNTS.reduce((a, k) => a + safeRs(f[`p_${k}`]), 0);
+    days.innerHTML = (pv.dayRows.length ? dayTable(pv.dayRows) : '') + perItemLines(pv.detail);
     $('#retCharge').textContent = money(pv.charge); $('#retDue').textContent = money(due); $('#retCredit').textContent = money(Math.max(0, due - paid));
-  } catch (e) { $('#retCharge').textContent = '—'; }
+  } catch (e) { days.innerHTML = `<p class="bad">${esc(e.message)}</p>`; $('#retCharge').textContent = '—'; }
 };
 acts.doReturn = (el) => attempt(async () => {
   const root = $('#retForm'), r = S.shop.rentals.get(el.dataset.id), f = formData(root);
   const payments = ACCOUNTS.map((a) => ({ account: a, amount: safeRs(f[`p_${a}`]) })).filter((p) => p.amount > 0);
-  const res = await S.shop.returnRental(r.id, { items: retItems(r, f), payments, refundAccount: f.refundAccount });
-  closeSheet(); toast(`${t('saved')} · ${t('charge')} ${money(res.charge)}${res.refund ? ` · ${t('refund')} ${money(res.refund)}` : ''}`); refresh();
+  const at = dateToTs(f.retDate, S.shop.now(), r.outAt);
+  const res = await S.shop.returnRental(r.id, { items: retItems(r, f), payments, refundAccount: f.refundAccount, at });
+  closeSheet(); refresh(); rentalBillSheet(res.rental, res);
 });
+/** shown right after a return: the whole amount, date by date */
+export function rentalBillSheet(rental, ret) {
+  const last = rental.returns[rental.returns.length - 1];
+  openSheet(`<h3>✔ ${t('return_items')} — ${esc(rental.customerName)}</h3>
+    <p class="sub">${t('given_on')}: ${fmtDate(rental.outAt)} → ${t('returned_on')}: ${fmtDate(last.at)}</p>
+    <h4>${t('rent_by_date')}</h4>${last.dayRows?.length ? dayTable(last.dayRows) : ''}${perItemLines(last.detail)}
+    <div class="total"><span>${t('total_rent')}</span><b>${money(ret.charge)}</b></div>
+    ${ret.applied ? `<div class="li"><span>${t('deposit_held')}</span><b>−${money(ret.applied)}</b></div>` : ''}${ret.paid ? `<div class="li"><span>${t('pay_now_rental')}</span><b>−${money(ret.paid)}</b></div>` : ''}
+    ${ret.credit ? `<div class="li"><b>${t('udhaar')}</b><b class="warn">${money(ret.credit)}</b></div>` : ''}${ret.refund ? `<div class="li"><b>${t('refund')}</b><b class="good">${money(ret.refund)}</b></div>` : ''}
+    <div class="col">${rental.phone ? `<a class="btn pri big" target="_blank" href="${S.shop.rentalBillLink(rental, S.lang)}">💬 ${t('send_rental_bill')}</a>` : ''}${btn('closeSheet', t('done'), { cls: 'link' })}</div>`);
+}
+
+export async function rentalDetail(id) {
+  const r = S.shop.rentals.get(id);
+  if (!r) return `<p class="empty">${t('not_found')}</p>`;
+  const now = S.shop.now(), open = r.status !== 'returned', pv = open ? S.shop.rentalPreview(r, null, now) : null;
+  return `<a href="#/rentals" class="back">← ${t('rentals')}</a><div class="card"><div class="row"><h2 class="grow">${esc(r.customerName)}</h2><small>${esc(r.no)} · ${open ? t('still_out') : t('rental_closed')}</small></div>
+    <p>${esc(r.phone)} ${esc(r.address || '')}</p><div class="sub">${t('given_on')}: <b>${fmtDate(r.outAt)}</b>${r.closedAt ? ` · ${t('returned_on')}: <b>${fmtDate(r.closedAt)}</b>` : ''}${r.idNote ? ` · 🪪 ${esc(r.idNote)}` : ''}</div>
+    ${r.items.map((i) => `<div class="li"><span>${esc(i.name)}</span><b>${i.returned} / ${i.qty} ${t('returned_on').toLowerCase()} · <small>${rateLabel(i)}</small></b></div>`).join('')}
+    ${open ? `<h4>${t('rent_so_far_today')}</h4>${pv.dayRows.length ? dayTable(pv.dayRows) : ''}<div class="li"><b>${t('total_rent')}</b><b class="warn">${money(pv.charge)}</b></div>` : ''}
+    ${r.deposit ? `<div class="li"><span>${t('security_deposit')}</span><b>${money(r.deposit)}</b></div>` : ''}
+    <div class="row wrap">${open ? btn('returnRental', '↩ ' + t('return_items'), { cls: 'pri', data: { id: r.id } }) : ''}${r.phone ? `<a class="btn" target="_blank" href="${S.shop.rentalBillLink(r, S.lang)}">💬 ${t('send_rental_bill')}</a>` : ''}</div></div>
+  ${r.returns.map((x) => `<div class="card"><h3>${t('returned_on')} ${fmtDate(x.at)}</h3>${x.dayRows?.length ? dayTable(x.dayRows) : ''}${perItemLines(x.detail || [])}
+    <div class="li"><b>${t('total_rent')}</b><b>${money(x.charge)}</b></div>${x.applied ? `<div class="li"><span>${t('deposit_held')}</span><b>−${money(x.applied)}</b></div>` : ''}
+    ${x.paid ? `<div class="li"><span>${t('pay_now_rental')}</span><b>−${money(x.paid)}</b></div>` : ''}${x.credit ? `<div class="li"><span>${t('udhaar')}</span><b class="warn">${money(x.credit)}</b></div>` : ''}${x.refund ? `<div class="li"><span>${t('refund')}</span><b class="good">${money(x.refund)}</b></div>` : ''}</div>`).join('')}`;
+}
 
 // ================= EXPENSES & ACCOUNTS (admin) =================
 const CATS = ['Rent', 'Electricity', 'Salaries', 'Tea & Food', 'Transport', 'Repairs', 'Other'];

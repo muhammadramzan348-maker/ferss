@@ -1,8 +1,8 @@
 // Shop: all business rules. Every posting is built in memory, then written in ONE atomic
 // storage batch. Stock, khata and cash balances are derived from append-only rows
 // (movements / ledger / cashTx), so they can always be rebuilt and audited.
-import { mulDiv, lineAmount, lineGross, listPrice, qtyForAmount, toBase, calcInvoice, allocate, rentalUnits,
-  pktDayStart, periodKey, fmtRs, normalizePk, waLink } from './core.js';
+import { mulDiv, lineAmount, lineGross, listPrice, qtyForAmount, toBase, calcInvoice, allocate, rentalUnits, rentalDayList,
+  pktDayStart, fmtDate, periodKey, fmtRs, normalizePk, waLink } from './core.js';
 
 export const ACCOUNTS = ['cash', 'bank', 'jazzcash', 'easypaisa'];
 export const DATA_COLS = new Set(['settings', 'products', 'categories', 'customers', 'suppliers', 'sales', 'purchases',
@@ -15,14 +15,14 @@ export class ShopError extends Error {
 }
 
 const DEFAULTS = {
-  shopName: 'RAMZAN ELECTRIC STORE & HARDWARE', shopAddress: 'Noor-e-Wali, Rahim Yar Khan', shopPhone: '03006703028', logoOnThermal: false, footer: 'Thank you for your business',
+  shopName: 'RAMZAN ELECTRIC STORE & HARDWARE', shopAddress: 'Noor-e-Wali, Rahim Yar Khan', shopPhone: '03006703028', logoOnThermal: false, showBanner: true, footer: 'Thank you for your business',
   receiptWidth: '80', allowNegative: false, rentalGraceMin: 30, invoicePrefix: 'RES',
   opening_cash: 0, opening_bank: 0, opening_jazzcash: 0, opening_easypaisa: 0,
 };
-export const DEFAULT_CATEGORIES = [
-  ['cat-hardware', 'Hardware & Tools', 'ہارڈویئر اور اوزار'], ['cat-electric', 'Electric & Wiring', 'الیکٹرک اور وائرنگ'],
-  ['cat-electronics', 'Electronics', 'الیکٹرانکس'], ['cat-sanitary', 'Sanitary & Plumbing', 'سینیٹری اور پلمبنگ'],
-  ['cat-building', 'Building Material', 'تعمیراتی سامان'], ['cat-rental', 'Rental Equipment', 'کرایہ کا سامان'],
+export const DEFAULT_CATEGORIES = [   // [id, English, Roman Urdu]
+  ['cat-hardware', 'Hardware & Tools', 'Hardware aur Auzaar'], ['cat-electric', 'Electric & Wiring', 'Electric aur Wiring'],
+  ['cat-electronics', 'Electronics', 'Electronics'], ['cat-sanitary', 'Sanitary & Plumbing', 'Sanitary aur Plumbing'],
+  ['cat-building', 'Building Material', 'Tameeraati Saman'], ['cat-rental', 'Rental Equipment', 'Kiraye ka Saman'],
 ];
 
 export class Shop {
@@ -48,6 +48,10 @@ export class Shop {
     if (!this.categories.size) {
       await this.commit(DEFAULT_CATEGORIES.map(([id, nameEn, nameUr]) => ({ col: 'categories', obj: { id, nameEn, nameUr } })));
     }
+    // older versions stored Urdu-script category names: switch the built-in ones to Roman Urdu
+    const fix = [];
+    for (const [id, , nameUr] of DEFAULT_CATEGORIES) { const c = this.categories.get(id); if (c && c.nameUr !== nameUr && /[\u0600-\u06FF]/.test(c.nameUr || '')) fix.push({ col: 'categories', obj: { ...c, nameUr } }); }
+    if (fix.length) await this.commit(fix);
     return this;
   }
   async setDeviceCode(code) {
@@ -253,7 +257,8 @@ export class Shop {
     const c = this.customers.get(customerId), b = this.balance('customer', customerId);
     const amt = fmtRs(b);
     return lang === 'ur'
-      ? `السلام علیکم ${c.name}،\n${this.cfg.shopName} کی طرف سے یاد دہانی: آپ کے ذمے ${amt} باقی ہیں۔ براہ کرم جلد ادا کر دیں۔ شکریہ۔`
+      ? `Assalam o Alaikum ${c.name},
+${this.cfg.shopName} ki taraf se yaad-dehani: aap ke zimme ${amt} baqi hain. Meherbani kar ke jald ada kar dein. Shukriya.`
       : `Assalam o Alaikum ${c.name},\nReminder from ${this.cfg.shopName}: your pending balance is ${amt}. Please pay at your earliest convenience. Thank you.`;
   }
   reminderLink(customerId, lang) { return waLink(this.customers.get(customerId).phone, this.reminderText(customerId, lang)); }
@@ -486,7 +491,7 @@ export class Shop {
   }
   availability(itemId) { return (this.rentalItems.get(itemId)?.total || 0) - this.rentedOut(itemId); }
 
-  async checkoutRental({ customerId = null, customerName, phone = '', items, deposit = 0, account = 'cash', idNote = '', note = '', dueAt = null }) {
+  async checkoutRental({ customerId = null, customerName, phone = '', address = '', items, deposit = 0, account = 'cash', idNote = '', note = '', dueAt = null, at: givenAt = null }) {
     this.need('rentals');
     return this.run(async () => {
       if (!(customerName || '').trim()) throw new ShopError('Customer name is required');
@@ -498,8 +503,10 @@ export class Shop {
         if (this.availability(it.id) < i.qty) throw new ShopError(`Only ${this.availability(it.id)} ${it.name} available`, 'rental_stock');
         return { itemId: it.id, name: it.name, qty: i.qty, returned: 0, rateType: i.rateType || it.rateType, rate: i.rate ?? it.rate };
       });
-      const at = this.now(), { no, doc } = await this.nextNo('RNT');
-      const r = { id: this.uid(), no, status: 'out', customerId, customerName: customerName.trim(), phone, idNote, note, outAt: at, dueAt,
+      const now = this.now(), at = givenAt ?? now;
+      if (at > now + 5 * 60000) throw new ShopError('The date it was given cannot be in the future');
+      const { no, doc } = await this.nextNo('RNT');
+      const r = { id: this.uid(), no, status: 'out', customerId, customerName: customerName.trim(), phone, address, idNote, note, outAt: at, dueAt,
         items: lines, deposit: deposit | 0, depositHeld: deposit | 0, charges: 0, returns: [] };
       const docs = [doc, { col: 'rentals', obj: r }];
       if (deposit > 0) docs.push(this._cash(account, deposit, 'rental_deposit', r.id, no, at));
@@ -507,31 +514,42 @@ export class Shop {
       return r;
     });
   }
-  /** Accrued charge if returned now (for the UI). */
+  /**
+   * What the rental costs if the given items come back at `at`. Daily items are charged DATE-WISE: every calendar day from
+   * the day it was given to the return day (both included). `dayRows` lists the rent for each date.
+   */
   rentalPreview(rental, items, at = this.now()) {
     const lines = (items || rental.items.map((i) => ({ itemId: i.itemId, qty: i.qty - i.returned }))).filter((i) => i.qty > 0);
-    let charge = 0;
-    const detail = lines.map((x) => {
+    let charge = 0; const byDay = new Map(), detail = [];
+    for (const x of lines) {
       const it = rental.items.find((i) => i.itemId === x.itemId);
-      const units = rentalUnits(rental.outAt, at, it.rateType, this.cfg.rentalGraceMin | 0);
-      const c = units * it.rate * x.qty; charge += c;
-      return { itemId: x.itemId, name: it.name, qty: x.qty, units, rateType: it.rateType, charge: c };
-    });
-    return { charge, detail };
+      if (it.rateType === 'hour') {
+        const units = rentalUnits(rental.outAt, at, 'hour', this.cfg.rentalGraceMin | 0), c = units * it.rate * x.qty;
+        charge += c; detail.push({ itemId: x.itemId, name: it.name, qty: x.qty, rate: it.rate, units, rateType: 'hour', charge: c });
+      } else {
+        const days = rentalDayList(rental.outAt, at), c = days.length * it.rate * x.qty;
+        charge += c; detail.push({ itemId: x.itemId, name: it.name, qty: x.qty, rate: it.rate, units: days.length, rateType: 'day', charge: c, from: days[0], to: days[days.length - 1] });
+        for (const d of days) byDay.set(d, (byDay.get(d) || 0) + it.rate * x.qty);
+      }
+    }
+    const dayRows = [...byDay].sort((a, b) => a[0] - b[0]).map(([day, amount]) => ({ day, amount }));
+    return { charge, detail, dayRows };
   }
   async returnRental(id, { items, at, payments = [], refundAccount = 'cash', note = '' } = {}) {
     this.need('rentals');
     return this.run(async () => {
       const cur = await this.store.get('rentals', id);
       if (!cur || cur.status === 'returned') throw new ShopError('Rental is already closed');
-      const r = JSON.parse(JSON.stringify(cur)), when = at || this.now();
+      const r = JSON.parse(JSON.stringify(cur)), now = this.now(), when = at || now;
+      if (when > now + 5 * 60000) throw new ShopError('The return date cannot be in the future');
       const ret = (items || r.items.map((i) => ({ itemId: i.itemId, qty: i.qty - i.returned }))).filter((i) => i.qty > 0);
       if (!ret.length) throw new ShopError('Nothing to return');
       for (const x of ret) {
         const it = r.items.find((i) => i.itemId === x.itemId);
         if (!it || x.qty > it.qty - it.returned) throw new ShopError('Return quantity is more than rented');
       }
-      const prev = this.rentalPreview(r, ret, when), C = prev.charge;
+      let prev; try { prev = this.rentalPreview(r, ret, when); } catch (e) { throw new ShopError(e.message); }
+      const C = prev.charge;
       for (const x of ret) r.items.find((i) => i.itemId === x.itemId).returned += x.qty;
       r.charges += C;
       const applied = Math.min(r.depositHeld, C); r.depositHeld -= applied;
@@ -549,17 +567,66 @@ export class Shop {
       let refund = 0;
       if (allBack) { r.status = 'returned'; r.closedAt = when; refund = r.depositHeld; r.depositHeld = 0; if (refund > 0) docs.push(this._cash(refundAccount, -refund, 'rental_refund', r.id, r.no, when)); }
       else r.status = 'partial';
-      r.returns.push({ at: when, items: ret, charge: C, applied, paid: P, credit, refund, note, detail: prev.detail });
+      r.returns.push({ at: when, items: ret, charge: C, applied, paid: P, credit, refund, note, detail: prev.detail, dayRows: prev.dayRows });
       docs.push({ col: 'rentals', obj: r });
       await this.commit(docs);
       return { rental: r, charge: C, applied, paid: P, credit, refund };
     });
   }
+  /** Plain-text rental bill (date-wise) for WhatsApp. */
+  rentalBillText(r, lang = 'en') {
+    const ro = lang === 'ur';
+    const L = ro ? { bill: 'Kiraye ka bill', cust: 'Gahak', given: 'Diya', back: 'Wapsi', days: 'din', bydate: 'Tareekh ke hisab se kiraya', total: 'Kul kiraya', dep: 'Zamanat jama', paid: 'Ada kiya', due: 'Baqi (udhaar)', refund: 'Zamanat wapas', pending: 'Abhi wapas nahi hua' }
+      : { bill: 'Rental bill', cust: 'Customer', given: 'Given', back: 'Returned', days: 'days', bydate: 'Rent date-wise', total: 'Total rent', dep: 'Deposit taken', paid: 'Paid', due: 'Balance (udhaar)', refund: 'Deposit refunded', pending: 'Not returned yet' };
+    const out = [this.cfg.shopName, `${L.bill} ${r.no}`, `${L.cust}: ${r.customerName}${r.phone ? ' ' + r.phone : ''}`, `${L.given}: ${fmtDate(r.outAt)}`];
+    for (const x of r.returns) {
+      out.push('', `${L.back}: ${fmtDate(x.at)}`);
+      for (const d of x.detail || []) out.push(`• ${d.qty} x ${d.name}: ${d.units} ${d.rateType === 'hour' ? 'hr' : L.days} × ${fmtRs(d.rate)} = ${fmtRs(d.charge)}`);
+      if (x.dayRows?.length) { out.push(`${L.bydate}:`); for (const d of x.dayRows) out.push(`  ${fmtDate(d.day)}: ${fmtRs(d.amount)}`); }
+    }
+    const open = r.items.filter((i) => i.qty > i.returned).map((i) => `${i.qty - i.returned} x ${i.name}`);
+    if (open.length) out.push('', `${L.pending}: ${open.join(', ')}`);
+    const paid = r.returns.reduce((a, x) => a + x.paid, 0), credit = r.returns.reduce((a, x) => a + x.credit, 0), refund = r.returns.reduce((a, x) => a + x.refund, 0);
+    out.push('', `${L.total}: ${fmtRs(r.charges)}`);
+    if (r.deposit) out.push(`${L.dep}: ${fmtRs(r.deposit)}`);
+    if (paid) out.push(`${L.paid}: ${fmtRs(paid)}`);
+    if (credit) out.push(`${L.due}: ${fmtRs(credit)}`);
+    if (refund) out.push(`${L.refund}: ${fmtRs(refund)}`);
+    return out.join('\n');
+  }
+  rentalBillLink(r, lang) { return waLink(r.phone, this.rentalBillText(r, lang)); }
+
+  /** Data safety check: do bills add up, do the cached balances match the saved rows, is anything negative? */
+  async selfCheck() {
+    const issues = [], [sales, mv, lg, cx] = await Promise.all(['sales', 'movements', 'ledger', 'cashTx'].map((c) => this.store.all(c)));
+    for (const s of sales.filter((x) => x.type === 'sale' && x.status === 'posted')) {
+      if (s.lines.reduce((a, l) => a + l.gross - l.discount, 0) - s.discount !== s.total) issues.push(`Bill ${s.no}: total does not match its items`);
+      if (s.paid + s.credit !== s.total) issues.push(`Bill ${s.no}: paid + udhaar is not equal to the total`);
+    }
+    const sum = (rows, key, val) => { const m = new Map(); for (const r of rows) m.set(key(r), (m.get(key(r)) || 0) + val(r)); return m; };
+    const stockQ = sum(mv, (m) => m.productId, (m) => m.qty), stockV = sum(mv, (m) => m.productId, (m) => m.value);
+    for (const p of this.products.values()) {
+      const c = this.stockOf(p.id);
+      if (c.qty !== (stockQ.get(p.id) || 0) || c.value !== (stockV.get(p.id) || 0)) issues.push(`Stock of ${p.name} does not match its movements`);
+      if (c.qty < 0) issues.push(`${p.name} has negative stock`);
+    }
+    const bal = sum(lg, (l) => `${l.party}:${l.partyId}`, (l) => l.amount);
+    for (const [k, v] of bal) if (v !== (this.bal.get(k) || 0)) issues.push(`Khata balance mismatch (${k})`);
+    const acc = sum(cx, (c) => c.account, (c) => c.amount);
+    for (const [k, v] of acc) if (v !== (this.acct.get(k) || 0)) issues.push(`Cash/bank balance mismatch (${k})`);
+    for (const r of this.rentals.values()) {
+      if (r.depositHeld < 0) issues.push(`Rental ${r.no}: negative deposit`);
+      for (const i of r.items) if (i.returned > i.qty) issues.push(`Rental ${r.no}: more returned than rented`);
+    }
+    return { ok: issues.length === 0, issues, counts: { products: this.products.size, customers: this.customers.size, bills: sales.filter((s) => s.type === 'sale').length, rentals: this.rentals.size, entries: mv.length + lg.length + cx.length } };
+  }
+
   activeRentals() { return [...this.rentals.values()].filter((r) => r.status !== 'returned').sort((a, b) => a.outAt - b.outAt); }
   rentalReminderText(r, lang = 'en') {
     const items = r.items.filter((i) => i.qty > i.returned).map((i) => `${i.qty - i.returned} x ${i.name}`).join(', ');
     return lang === 'ur'
-      ? `السلام علیکم ${r.customerName}،\n${this.cfg.shopName}: آپ کے پاس کرائے کا سامان (${items}) ہے۔ براہ کرم واپس کر دیں۔ شکریہ۔`
+      ? `Assalam o Alaikum ${r.customerName},
+${this.cfg.shopName}: aap ke paas kiraye ka saman (${items}) hai. Meherbani kar ke wapas kar dein. Shukriya.`
       : `Assalam o Alaikum ${r.customerName},\n${this.cfg.shopName}: you still have rented items (${items}). Please return them. Thank you.`;
   }
 

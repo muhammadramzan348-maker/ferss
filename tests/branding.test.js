@@ -71,3 +71,20 @@ test('logo row: scaled, centred, keeps aspect ratio, painted with drawImage, wor
   calls.length = 0; renderA4Pages(mk, receiptRows(shop, sale, (k) => k, 'ur', { logo, logoFrac: 0.22 }), 'ur');
   assert.equal(calls.length, 1);
 });
+
+test('banner is compact on PC: capped width in media queries, fluid on phones, height auto', () => {
+  const css = readFileSync('css/app.css', 'utf8');
+  const base = /\.banner\{[^}]*\}/.exec(css)[0];
+  assert.match(base, /width:100%/); assert.match(base, /max-width:100%/);          // phone: fills the width like before
+  assert.match(css, /\.banner img\{[^}]*height:auto[^}]*max-height:300px/);
+  const tablet = /@media\(min-width:700px\)\{\.banner\{max-width:(\d+)px\}\}/.exec(css), pc = /@media\(min-width:1100px\)\{\.banner\{max-width:(\d+)px/.exec(css);
+  assert.ok(tablet && Number(tablet[1]) <= 560); assert.ok(pc && Number(pc[1]) <= 460);
+});
+
+test('Settings can hide the banner (then the plain shop name shows)', async () => {
+  const shop = await mkShop(); await seed(shop); S.shop = shop; S.auth = new Auth(shop.store, { iterations: 1000 }); S.lang = 'en';
+  assert.match(await M.dashboard(), /class="banner"/);
+  shop.role = 'admin'; await shop.setCfg('showBanner', false);
+  const d = await M.dashboard(); assert.ok(!d.includes('class="banner"')); assert.match(d, /<h1 class="brand">RAMZAN ELECTRIC STORE &amp; HARDWARE<\/h1>/);
+  assert.match(await settingsScreen(), /data-k="showBanner"/);
+});

@@ -32,7 +32,9 @@ export class IdbStore {
     return new Promise((res, rej) => {
       const names = [...new Set(ops.map((o) => o.col))];
       if (!names.length) return res();
-      const tx = this.db.transaction(names, 'readwrite');
+      let tx;
+      try { tx = this.db.transaction(names, 'readwrite', { durability: 'strict' }); }   // flushed to disk before 'complete'
+      catch { tx = this.db.transaction(names, 'readwrite'); }
       for (const o of ops) { const s = tx.objectStore(o.col); if (o.del) s.delete(o.del); else s.put(o.obj); }
       tx.oncomplete = () => res();
       tx.onerror = () => rej(tx.error);

@@ -19,3 +19,6 @@ export function installFakeDom() {
 }
 /** form stub: values are plain strings */
 export const form = (dataset, vals) => ({ dataset, ...Object.fromEntries(Object.entries(vals).map(([k, v]) => [k, { value: v }])) });
+
+/** a form container whose [name] fields are plain values (for formData()) */
+export const formRoot = (dataset, vals) => ({ dataset, querySelectorAll: () => Object.entries(vals).map(([name, value]) => ({ name, value, type: 'text' })) });

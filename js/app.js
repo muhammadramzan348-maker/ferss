@@ -19,7 +19,7 @@ export const ROUTES = [
   [/^items$/, () => K.itemsList()], [/^item\/(.+)$/, (m) => K.itemForm(m[1])],
   [/^customers$/, () => K.partyList('customer')], [/^customer\/(.+)$/, (m) => K.partyDetail('customer', m[1])],
   [/^suppliers$/, () => K.partyList('supplier')], [/^supplier\/(.+)$/, (m) => K.partyDetail('supplier', m[1])],
-  [/^purchase$/, (m, q) => K.purchaseScreen(q)], [/^rentals$/, () => O.rentalsScreen()], [/^rental\/new$/, () => O.rentalNew()],
+  [/^purchase$/, (m, q) => K.purchaseScreen(q)], [/^rentals$/, () => O.rentalsScreen()], [/^rental\/new$/, () => O.rentalNew()], [/^rental\/(.+)$/, (m) => O.rentalDetail(m[1])],
   [/^expenses$/, () => O.expensesScreen()], [/^reports$/, () => O.reportsScreen()], [/^settings$/, () => settingsScreen()],
 ];
 const ADMIN_ONLY = /^(suppliers|supplier\/|purchase|expenses)/;
@@ -30,12 +30,14 @@ async function boot() {
   S.shop = await new Shop({ store }).init();
   S.shop.role = null;
   S.auth = new Auth(store);
+  try { S.persisted = (await navigator.storage?.persisted?.()) || (await navigator.storage?.persist?.()) || false; } catch { S.persisted = false; }
   S.lang = localStorage.getItem('lang') || 'en'; S.idleMin = Number(localStorage.getItem('idleMin') ?? 5);
   applyLang();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
   showLock();
 }
-function applyLang() { document.documentElement.lang = S.lang; document.documentElement.dir = S.lang === 'ur' ? 'rtl' : 'ltr'; }
+// Roman Urdu is written in English letters, so the layout is always left-to-right.
+function applyLang() { document.documentElement.lang = S.lang === 'ur' ? 'ur-Latn' : 'en'; document.documentElement.dir = 'ltr'; }
 
 // ---------- lock screen ----------
 async function showLock() {
@@ -46,7 +48,7 @@ async function showLock() {
     ${setup ? `<p>${t('first_run')}</p><input id="pin1" type="password" inputmode="numeric" maxlength="8" placeholder="${t('new_pin')}" autocomplete="off"><input id="pin2" type="password" inputmode="numeric" maxlength="8" placeholder="${t('confirm_pin')}" autocomplete="off">
     <button class="btn pri big" id="pinSet">${t('save')}</button>`
       : `<input id="pin" type="password" inputmode="numeric" maxlength="8" placeholder="${t('enter_pin')}" autocomplete="off" autofocus><button class="btn pri big" id="pinGo">🔓 ${t('unlock')}</button>`}
-    <p class="bad" id="pinErr"></p><div class="row"><button class="btn link" id="langBtn">${S.lang === 'en' ? 'اردو' : 'English'}</button><button class="btn link" id="themeBtn">🌓</button></div></div></div>`;
+    <p class="bad" id="pinErr"></p><div class="row"><button class="btn link" id="langBtn">${S.lang === 'en' ? 'Roman Urdu' : 'English'}</button><button class="btn link" id="themeBtn">🌓</button></div></div></div>`;
   $('#langBtn').onclick = () => { setLang(S.lang === 'en' ? 'ur' : 'en'); showLock(); };
   $('#themeBtn').onclick = () => toggleTheme(browserEnv());
   const err = (m) => { $('#pinErr').textContent = m; };
@@ -81,7 +83,7 @@ function startApp() {
   const items = navItems(), primary = items.slice(0, 4);
   root.innerHTML = `<div class="shell"><aside class="side"><div class="logo"><img class="side-logo" src="img/logo-256.png" alt=""><span>${esc(S.shop.cfg.shopName)}</span></div>${items.map(([h, i, l]) => `<a href="${h}" data-nav="${h}">${i} <span>${l}</span></a>`).join('')}</aside>
     <div class="content"><header class="top"><img class="top-logo" src="img/logo-256.png" alt=""><b class="ttl">${esc(S.shop.cfg.shopName)}</b><span class="grow"></span><span class="role">${S.shop.role === 'admin' ? '👑' : '🧑‍💼'}</span>
-      <button class="ic" id="themeTop" title="Light / Dark">${themeIcon()}</button><button class="ic" id="langTop">${S.lang === 'en' ? 'اردو' : 'EN'}</button><button class="ic" id="lockTop" title="${t('lock')}">🔒</button></header>
+      <button class="ic" id="themeTop" title="Light / Dark">${themeIcon()}</button><button class="ic" id="langTop">${S.lang === 'en' ? 'RU' : 'EN'}</button><button class="ic" id="lockTop" title="${t('lock')}">🔒</button></header>
       <main id="main"></main></div>
     <nav class="bottom">${primary.map(([h, i, l]) => `<a href="${h}" data-nav="${h}">${i}<span>${l}</span></a>`).join('')}<a href="#" data-act="moreMenu">☰<span>${t('more')}</span></a></nav></div>`;
   $('#lockTop').onclick = showLock;

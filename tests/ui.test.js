@@ -73,7 +73,7 @@ for (const lang of ['en', 'ur']) {
     for (const [name, html] of Object.entries(pages)) { assert.ok(html.length > 50, name); assert.ok(!/undefined|\[object Object\]|NaN/.test(html), `${name} contains junk: ${html.match(/.{30}(undefined|\[object Object\]|NaN).{30}/)?.[0]}`); }
     assert.match(pages.dashboard, /RAMZAN ELECTRIC STORE &amp; HARDWARE/);
     assert.match(pages.sale, /Paris/); assert.match(pages.rentals, /Bashir/);
-    if (lang === 'ur') assert.match(pages.pos, /پیرس/);
+    if (lang === 'ur') assert.match(pages.pos, /Paris Powder/);
   });
 }
 

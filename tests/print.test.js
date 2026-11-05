@@ -18,18 +18,18 @@ test('receipt rows contain shop name, items, totals, and Urdu names in Urdu mode
   const en = JSON.stringify(receiptRows(s, sale, L, 'en')), ur = JSON.stringify(receiptRows(s, sale, L, 'ur'));
   assert.match(en, /RAMZAN ELECTRIC STORE & HARDWARE/); assert.match(en, /Paris \(Gypsum\)/); assert.match(en, /Rs\. 15/);
   assert.match(en, /balance_due/);                         // Rs 5 left on udhaar
-  assert.match(ur, /پیرس/);
+  assert.match(ur, /Paris Powder/);
 });
 
-test('layout wraps long text, right-aligns amounts, and RTL mirrors the sides', () => {
+test('layout wraps long text and right-aligns amounts; Roman Urdu uses the same left-to-right layout', () => {
   const rows = [{ t: 'text', text: 'word '.repeat(40) }, { t: 'lr', l: 'Total', r: 'Rs. 99' }, { t: 'line' }, { t: 'center', text: 'Hi' }];
   const en = layoutRows(measure, rows, 384, { lang: 'en' }), ur = layoutRows(measure, rows, 384, { lang: 'ur' });
   const texts = en.ops.filter((o) => o.k === 'text');
   assert.ok(texts.filter((o) => o.text.startsWith('word')).length > 3);              // wrapped
   assert.ok(texts.every((o) => measure('', o.text) <= 384));
   assert.equal(en.ops.find((o) => o.text === 'Rs. 99').align, 'right');
-  assert.equal(ur.ops.find((o) => o.text === 'Rs. 99').align, 'left');                // mirrored
-  assert.equal(ur.ops.find((o) => o.text === 'Total').align, 'right');
+  assert.equal(ur.ops.find((o) => o.text === 'Rs. 99').align, 'right');               // NOT mirrored
+  assert.equal(ur.ops.find((o) => o.text === 'Total').align, 'left');
   assert.ok(en.height > 100);
 });
 

@@ -40,3 +40,20 @@ offline cache is picked up (or Chrome > Site settings > Clear & reset).
 - **Banner with contact number** (`img/banner.jpg`): top of the Dashboard. Tap it to share the shop card on WhatsApp.
 - Receipts now default to the banner details: 03006703028, Noor-e-Wali, Rahim Yar Khan (editable in Settings -> Shop details).
 - Changed: `js/app.js`, `js/print.js`, `js/db.js`, `js/i18n.js`, `js/ui/main_screens.js`, `js/ui/output.js`, `js/ui/settings_screen.js`, `css/app.css`, `index.html`, `tools/gen_sw.py`, `sw.js`.
+
+---
+# Update: Drive overwrite, banner size, Roman Urdu, date-wise rentals, data safety
+1. **Google Drive:** one fixed file `ramzan_store_backup.json`. If it exists it is UPDATED in place (same file, no duplicate); otherwise created.
+   Old dated backups / accidental duplicates are removed, so Restore shows one latest backup. If the file was deleted in Drive, a new one is created.
+2. **Banner:** full width on phones; on tablets max 520px, on PC max 420px, centred, `height:auto` (`css/app.css`).
+   Settings -> "Show shop banner on Dashboard" switch hides it completely.
+3. **Roman Urdu** replaces Urdu script everywhere (all screens, units, categories, receipts, WhatsApp messages). Layout is always left-to-right.
+   Old Urdu-script *category* names are converted automatically. Item names you typed earlier in Urdu script stay as typed (edit them in Items).
+4. **Rentals are date-wise:** every calendar day from the day it was given to the day it came back (both included) is charged.
+   Rs 100/day, given on the 4th, returned on the 5th = Rs 200. Pick the given date when renting and the return date when returning
+   (back-dating allowed, future dates refused). The Return screen shows the date-by-date rent, deposit, amount to collect; after returning you get
+   a bill (also WhatsApp). New rental detail page, address field, per-day rate on every card. Hourly items still work.
+5. **Data safety:** permanent-storage request, writes flushed to disk before "saved" (`durability: strict`, one atomic transaction per posting),
+   Settings -> Data safety (status, record counts, "Check my data" self-check, "Download backup now"), backup reminder after 7 days.
+Files: `js/gdrive.js`, `js/ui/backup_actions.js`, `js/i18n.js`, `js/core.js`, `js/db.js`, `js/store.js`, `js/app.js`, `js/print.js`,
+`js/ui/ops_screens.js`, `js/ui/main_screens.js`, `js/ui/settings_screen.js`, `js/ui/stock_screens.js`, `js/ui/ctx.js`, `css/app.css`, tests.

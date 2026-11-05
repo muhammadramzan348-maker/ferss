@@ -10,8 +10,9 @@ export async function dashboard() {
   const low = S.shop.lowStock().slice(0, 5);
   const overdue = S.shop.activeRentals().filter((r) => r.dueAt && r.dueAt < S.shop.now()).length;
   const stat = (label, val, cls = '') => `<div class="stat ${cls}"><div class="v">${val}</div><div class="l">${label}</div></div>`;
-  return `<h1 class="sr-only">${esc(S.shop.cfg.shopName)}</h1>
-  <button class="banner" data-act="shareCard" aria-label="${t('share_card')}"><img src="img/banner.jpg" alt="${esc(S.shop.cfg.shopName)}" width="1200" height="687"><span class="share-chip">📤 ${t('share_card')}</span></button>
+  const banner = S.shop.cfg.showBanner !== false;
+  return `${banner ? `<h1 class="sr-only">${esc(S.shop.cfg.shopName)}</h1>
+  <button class="banner" data-act="shareCard" aria-label="${t('share_card')}"><img src="img/banner.jpg" alt="${esc(S.shop.cfg.shopName)}" width="1200" height="687"><span class="share-chip">📤 ${t('share_card')}</span></button>` : `<h1 class="brand">${esc(S.shop.cfg.shopName)}</h1>`}
   <div class="grid stats">
     ${stat(t('today_sales'), money(d.todaySales) + ` <small>(${d.todayCount})</small>`)}
     ${d.todayProfit !== undefined ? stat(t('today_profit'), money(d.todayProfit), 'good') : ''}
@@ -26,7 +27,7 @@ export async function dashboard() {
     <a class="btn" href="#/customers">💰 ${t('receive_payment')}</a><a class="btn" href="#/rentals">🪑 ${t('rentals')}</a>
     <a class="btn" href="#/items">📦 ${t('items')}</a>${isAdmin() ? `<a class="btn" href="#/expenses">🧾 ${t('expenses')}</a>` : ''}
   </div></div>
-  ${isAdmin() && Date.now() - Number(lp('lastDriveBackup', 0)) > 7 * 86400000 ? `<div class="card late"><a href="#/settings">☁ ${t('backup_old')}</a></div>` : ''}
+  ${isAdmin() && Date.now() - Math.max(Number(lp('lastBackup', 0)), Number(lp('lastDriveBackup', 0))) > 7 * 86400000 ? `<div class="card late"><a href="#/settings">☁ ${t('backup_old')}</a></div>` : ''}
   ${low.length ? `<div class="card"><h3>⚠ ${t('low_stock')}</h3>${low.map((p) => `<div class="li"><span>${esc(pname(p))} ${esc(p.size)}</span><b class="bad">${qtyText(p, S.shop.stockOf(p.id).qty)}</b></div>`).join('')}</div>` : ''}
   ${d.openEstimates ? `<div class="card"><a href="#/sales?tab=estimates">📝 ${d.openEstimates} ${t('open_estimates')} →</a></div>` : ''}`;
 }
