@@ -1,6 +1,6 @@
 // Shop: all business rules. Every posting is built in memory, then written in ONE atomic
-// storage batch. Stock, khata and cash balances are derived from append-only rows
-// (movements / ledger / cashTx), so they can always be rebuilt and audited.
+// storage batch. There is NO stock tracking: quantities only matter on the bill. Khata and cash balances are
+// derived from append-only rows (ledger / cashTx), so they can always be rebuilt and audited.
 import { mulDiv, lineAmount, lineGross, listPrice, qtyForAmount, toBase, calcInvoice, allocate, rentalUnits, rentalDayList,
   pktDayStart, fmtDate, periodKey, fmtRs, normalizePk, waLink } from './core.js';
 
@@ -8,15 +8,16 @@ export const ACCOUNTS = ['cash', 'bank', 'jazzcash', 'easypaisa'];
 export const DATA_COLS = new Set(['settings', 'products', 'categories', 'customers', 'suppliers', 'sales', 'purchases',
   'movements', 'ledger', 'cashTx', 'expenses', 'rentalItems', 'rentals']);
 export const IMMUTABLE = new Set(['movements', 'ledger', 'cashTx']);
-const SALESMAN = new Set(['sell', 'estimate', 'customers', 'receive', 'rentals', 'view_items']);
+const SALESMAN = new Set(['sell', 'estimate', 'customers', 'receive', 'rentals', 'view_items', 'delete']);
+export const BIN_DAYS = 30;                                   // deleted bills / khata are kept this long, then removed automatically
 
 export class ShopError extends Error {
   constructor(message, code = 'error', data) { super(message); this.code = code; this.data = data; }
 }
 
 const DEFAULTS = {
-  shopName: 'RAMZAN ELECTRIC STORE & HARDWARE', shopAddress: 'Noor-e-Wali, Rahim Yar Khan', shopPhone: '03006703028', logoOnThermal: false, showBanner: true, footer: 'Thank you for your business',
-  receiptWidth: '80', allowNegative: false, rentalGraceMin: 30, invoicePrefix: 'RES',
+  shopName: 'RAMZAN ELECTRIC STORE & HARDWARE', shopAddress: 'Noor-e-Wali, Rahim Yar Khan', shopPhone: '03006703028', logoOnThermal: false, showBanner: true, returnPolicy: '', footer: 'Thank you for your business',
+  receiptWidth: '80', rentalGraceMin: 30, invoicePrefix: 'RES',
   opening_cash: 0, opening_bank: 0, opening_jazzcash: 0, opening_easypaisa: 0,
 };
 export const DEFAULT_CATEGORIES = [   // [id, English, Roman Urdu]
@@ -31,7 +32,7 @@ export class Shop {
     this.role = 'admin'; this.cfg = { ...DEFAULTS };
     this.products = new Map(); this.customers = new Map(); this.suppliers = new Map();
     this.categories = new Map(); this.rentalItems = new Map(); this.rentals = new Map();
-    this.stock = new Map(); this.bal = new Map(); this.acct = new Map();
+    this.bal = new Map(); this.acct = new Map();
     this._q = Promise.resolve();
   }
 
@@ -45,6 +46,7 @@ export class Shop {
     if (!dev) { dev = { id: 'device', code: 'A', deviceId: this.uid() }; await this.store.batch([{ col: 'meta', obj: dev }]); }
     this.deviceCode = dev.code; this.deviceId = dev.deviceId;
     await this.rebuild();
+    if (!(await this.store.get('meta', 'nostock_v1'))) { await this.migrateNoStock(); await this.store.batch([{ col: 'meta', obj: { id: 'nostock_v1' } }]); }
     if (!this.categories.size) {
       await this.commit(DEFAULT_CATEGORIES.map(([id, nameEn, nameUr]) => ({ col: 'categories', obj: { id, nameEn, nameUr } })));
     }
@@ -52,12 +54,30 @@ export class Shop {
     const fix = [];
     for (const [id, , nameUr] of DEFAULT_CATEGORIES) { const c = this.categories.get(id); if (c && c.nameUr !== nameUr && /[\u0600-\u06FF]/.test(c.nameUr || '')) fix.push({ col: 'categories', obj: { ...c, nameUr } }); }
     if (fix.length) await this.commit(fix);
+    await this.purgeExpired();
     return this;
   }
   async setDeviceCode(code) {
     code = String(code || 'A').toUpperCase().slice(0, 2);
     this.deviceCode = code;
     await this.store.batch([{ col: 'meta', obj: { id: 'device', code, deviceId: this.deviceId } }]);
+  }
+
+  /**
+   * Stock tracking was removed. Older shops have stock movements: use them once to give every item a cost price
+   * (average cost), so profit reports keep working. Nothing is deleted.
+   */
+  async migrateNoStock() {
+    const mv = await this.store.all('movements'), agg = new Map();
+    for (const m of mv) { const a = agg.get(m.productId) || { q: 0, v: 0 }; a.q += m.qty; a.v += m.value; agg.set(m.productId, a); }
+    const docs = [];
+    for (const p of this.products.values()) {
+      if (p.costPrice != null) continue;
+      const a = agg.get(p.id);
+      docs.push({ col: 'products', obj: { ...p, costPrice: a && a.q > 0 ? mulDiv(a.v, 1000, a.q) : (p.lastCost | 0) } });
+    }
+    if (docs.length) await this.commit(docs);
+    return docs.length;
   }
 
   /** Re-read everything into the in-memory caches (after restore / sync). */
@@ -68,17 +88,16 @@ export class Shop {
       ['categories', 'categories'], ['rentalItems', 'rentalItems'], ['rentals', 'rentals']]) {
       this[name] = new Map((await this.store.all(col)).map((o) => [o.id, o]));
     }
-    this.stock = new Map(); this.bal = new Map(); this.acct = new Map();
-    for (const m of await this.store.all('movements')) this._addMove(m);
+    for (const [id, c] of [...this.customers]) if (c.deleted) this.customers.delete(id);
+    this.bal = new Map(); this.acct = new Map();
     for (const l of await this.store.all('ledger')) this._addLedger(l);
     for (const c of await this.store.all('cashTx')) this._addCash(c);
   }
-  _addMove(m) { const s = this.stock.get(m.productId) || { qty: 0, value: 0 }; s.qty += m.qty; s.value += m.value; this.stock.set(m.productId, s); }
   _addLedger(l) { const k = `${l.party}:${l.partyId}`; this.bal.set(k, (this.bal.get(k) || 0) + l.amount); }
   _addCash(c) { this.acct.set(c.account, (this.acct.get(c.account) || 0) + c.amount); }
   _cache(col, o) {
+    if (col === 'customers' && o.deleted) { this.customers.delete(o.id); return; }
     if (col === 'settings') this.cfg[o.id] = o.value;
-    else if (col === 'movements') this._addMove(o);
     else if (col === 'ledger') this._addLedger(o);
     else if (col === 'cashTx') this._addCash(o);
     else if (this[col] instanceof Map) this[col].set(o.id, o);
@@ -106,9 +125,6 @@ export class Shop {
   }
 
   // ---------- row builders ----------
-  _mov(productId, type, qty, value, refId, note, at) {
-    return { col: 'movements', obj: { id: this.uid(), productId, type, qty, value, refId, note, at } };
-  }
   _led(party, partyId, kind, amount, refId, note, at, no) {
     return { col: 'ledger', obj: { id: this.uid(), party, partyId, kind, amount, refId, note, at, no } };
   }
@@ -120,11 +136,8 @@ export class Shop {
   // ---------- settings ----------
   async setCfg(key, value) { this.need('settings'); return this.commit([{ col: 'settings', obj: { id: key, value } }]); }
 
-  // ---------- products & stock ----------
-  stockOf(pid) { return this.stock.get(pid) || { qty: 0, value: 0 }; }
-  avgCost(pid) { const s = this.stockOf(pid); return s.qty > 0 ? mulDiv(s.value, 1000, s.qty) : 0; }
-
-  async saveProduct(input, { openingQty = 0, openingValue = 0 } = {}) {
+  // ---------- products ----------
+  async saveProduct(input) {
     this.need('manage_items');
     const old = input.id ? this.products.get(input.id) : null;
     const p = {
@@ -132,8 +145,10 @@ export class Shop {
       category: input.category || '', brand: input.brand || '', size: input.size || '', barcode: input.barcode || '',
       location: input.location || '', baseUnit: input.baseUnit || 'pc', sellUnit: input.sellUnit || input.baseUnit || 'pc',
       units: (input.units || []).map((u) => ({ unit: u.unit, num: Number(u.num), den: Number(u.den) })),
-      retailPrice: input.retailPrice | 0, wholesalePrice: input.wholesalePrice | 0, minStock: input.minStock | 0,
-      active: input.active !== false, createdAt: old?.createdAt || this.now(), lastCost: old?.lastCost || 0,
+      retailPrice: input.retailPrice | 0, wholesalePrice: input.wholesalePrice | 0,
+      // cost per BASE unit (paise): used only for profit. Updated automatically by purchases.
+      costPrice: input.costPrice != null ? input.costPrice | 0 : (old?.costPrice ?? old?.lastCost ?? 0),
+      active: input.active !== false, createdAt: old?.createdAt || this.now(),
     };
     if (!p.name) throw new ShopError('Item name is required');
     for (const u of p.units) if (!(Number.isInteger(u.num) && u.num > 0 && Number.isInteger(u.den) && u.den > 0)) throw new ShopError('Invalid unit conversion');
@@ -141,10 +156,7 @@ export class Shop {
     if (p.retailPrice < 0 || p.wholesalePrice < 0) throw new ShopError('Price cannot be negative');
     if (!p.sku) p.sku = `P${String(this.products.size + 1).padStart(4, '0')}-${this.deviceCode}`;
     if ([...this.products.values()].some((x) => x.id !== p.id && x.sku === p.sku)) throw new ShopError(`SKU ${p.sku} already exists`);
-    if (old && old.baseUnit !== p.baseUnit && (this.stock.has(p.id))) throw new ShopError('Base unit cannot change after stock movements exist');
-    const docs = [{ col: 'products', obj: p }];
-    if (!old && openingQty > 0) docs.push(this._mov(p.id, 'opening', openingQty, openingValue, null, 'Opening stock', this.now()));
-    await this.commit(docs);
+    await this.commit([{ col: 'products', obj: p }]);
     return p;
   }
   setProductActive(id, active) { this.need('manage_items'); return this.commit([{ col: 'products', obj: { ...this.products.get(id), active } }]); }
@@ -163,35 +175,6 @@ export class Shop {
   }
   /** List price per SELL unit (paise). */
   defaultPrice(pid, mode = 'retail') { return listPrice(this.products.get(pid), mode); }
-
-  /** Manual stock correction (admin). deltaBase is signed, in base milli-units. */
-  async adjustStock(pid, deltaBase, reason) {
-    this.need('stock_admin');
-    return this.run(async () => {
-      if (!deltaBase) throw new ShopError('Adjustment cannot be zero');
-      if (!String(reason || '').trim()) throw new ShopError('Reason is required');
-      const s = this.stockOf(pid), at = this.now();
-      let value;
-      if (deltaBase > 0) value = mulDiv(this.avgCost(pid), deltaBase, 1000);
-      else { const d = -deltaBase; value = -(s.qty > 0 && d <= s.qty ? mulDiv(s.value, d, s.qty) : mulDiv(this.avgCost(pid), d, 1000)); }
-      if (!this.cfg.allowNegative && s.qty + deltaBase < 0) throw new ShopError('Adjustment would make stock negative');
-      await this.commit([this._mov(pid, 'adjust', deltaBase, value, null, reason, at)]);
-    });
-  }
-  /** Admin: zero the stock of one item (or all) through auditable adjustment rows. */
-  async resetStock(pid, reason) {
-    this.need('stock_admin');
-    return this.run(async () => {
-      if (!String(reason || '').trim()) throw new ShopError('Reason is required');
-      const at = this.now(), docs = [];
-      for (const [id, s] of this.stock) {
-        if (pid && id !== pid) continue;
-        if (s.qty || s.value) docs.push(this._mov(id, 'adjust', -s.qty, -s.value, null, `RESET: ${reason}`, at));
-      }
-      if (docs.length) await this.commit(docs);
-      return docs.length;
-    });
-  }
 
   // ---------- customers / suppliers / khata ----------
   balance(party, id) { return this.bal.get(`${party}:${id}`) || 0; }
@@ -264,9 +247,9 @@ ${this.cfg.shopName} ki taraf se yaad-dehani: aap ke zimme ${amt} baqi hain. Meh
   reminderLink(customerId, lang) { return waLink(this.customers.get(customerId).phone, this.reminderText(customerId, lang)); }
 
   // ---------- sales / estimates ----------
-  _prepLines(input, { checkStock }) {
+  _prepLines(input) {
     if (!input.lines?.length) throw new ShopError('Add at least one item');
-    const running = new Map(), lines = [];
+    const lines = [];
     for (const l of input.lines) {
       const p = this.products.get(l.productId);
       if (!p) throw new ShopError('Item not found');
@@ -287,13 +270,8 @@ ${this.cfg.shopName} ki taraf se yaad-dehani: aap ke zimme ${amt} baqi hain. Meh
       }
       let baseQty;
       try { baseQty = toBase(p, qty, unit); } catch (e) { throw new ShopError(e.message); }
-      const st = running.get(p.id) || { ...this.stockOf(p.id) };
-      let cogs = 0;
-      if (checkStock) {
-        if (!this.cfg.allowNegative && st.qty < baseQty) throw new ShopError(`Insufficient stock for ${p.name}: available ${st.qty / 1000}, needed ${baseQty / 1000}`, 'stock');
-        cogs = st.qty > 0 && baseQty <= st.qty ? mulDiv(st.value, baseQty, st.qty) : mulDiv(st.qty > 0 ? mulDiv(st.value, 1000, st.qty) : this.avgCost(p.id), baseQty, 1000);
-        st.qty -= baseQty; st.value -= cogs; running.set(p.id, st);
-      }
+      // cost of goods = item cost price x quantity (profit only; nothing is counted or checked in stock)
+      const cogs = mulDiv(p.costPrice | 0, baseQty, 1000);
       lines.push({ productId: p.id, name: p.name, nameUr: p.nameUr, size: p.size, unit, qty, price, priceUnit: p.sellUnit, gross,
         discount: l.discount | 0, baseQty, cogs, byAmount: l.amount != null, amountInput: l.amount ?? null, note: String(l.note || '').trim().slice(0, 120) });
     }
@@ -302,15 +280,15 @@ ${this.cfg.shopName} ki taraf se yaad-dehani: aap ke zimme ${amt} baqi hain. Meh
     return { lines, calc };
   }
 
-  /** Cart totals without writing anything (stock is not checked). Returns {lines, calc} or {error}. */
+  /** Cart totals without writing anything. Returns {lines, calc} or {error}. */
   preview(input) {
-    try { return this._prepLines(input, { checkStock: false }); } catch (e) { return { error: e.message }; }
+    try { return this._prepLines(input); } catch (e) { return { error: e.message }; }
   }
 
   async saveEstimate(input) {
     this.need('estimate');
     return this.run(async () => {
-      const { lines, calc } = this._prepLines(input, { checkStock: false });
+      const { lines, calc } = this._prepLines(input);
       const at = this.now(), { no, doc } = await this.nextNo('EST');
       const est = { id: this.uid(), no, type: 'estimate', status: 'open', at, customerId: input.customerId || null,
         priceMode: input.priceMode || 'retail', lines, subtotal: calc.subtotal, discount: calc.invoiceDiscount, total: calc.total,
@@ -323,7 +301,7 @@ ${this.cfg.shopName} ki taraf se yaad-dehani: aap ke zimme ${amt} baqi hain. Meh
   postSale(input) { this.need('sell'); return this.run(() => this._postSale(input)); }
 
   async _postSale(input, extraFn = null) {
-    const { lines, calc } = this._prepLines(input, { checkStock: true });
+    const { lines, calc } = this._prepLines(input);
     const total = calc.total, payments = (input.payments || []).filter((p) => p.amount > 0);
     const paid = payments.reduce((a, p) => a + p.amount, 0);
     if (paid > total) throw new ShopError('Amount received cannot exceed the bill total');
@@ -342,7 +320,6 @@ ${this.cfg.shopName} ki taraf se yaad-dehani: aap ke zimme ${amt} baqi hain. Meh
       cogs: lines.reduce((a, l) => a + l.cogs, 0), payments, note: input.note || '', cashier: this.role,
       method: credit === total ? 'credit' : (credit > 0 || payments.length > 1) ? 'split' : payments[0].account };
     const docs = [seq, { col: 'sales', obj: sale }, ...(extraFn ? extraFn(sale) : [])];
-    for (const l of lines) docs.push(this._mov(l.productId, 'sale', -l.baseQty, -l.cogs, sale.id, no, at));
     for (const p of payments) docs.push(this._cash(p.account, p.amount, 'sale', sale.id, no, at));
     if (custId) {
       docs.push(this._led('customer', custId, 'sale', total, sale.id, no, at, no));
@@ -378,15 +355,93 @@ ${this.cfg.shopName} ki taraf se yaad-dehani: aap ke zimme ${amt} baqi hain. Meh
       await this.commit(docs);
     });
   }
-  async _reversalDocs(refId, note) {
+  async _reversalDocs(refId, note, extra = {}) {
     const at = this.now(), docs = [];
     const was = (o) => !o.reversalOf && o.refId === refId;
     const done = new Set();
-    for (const col of ['movements', 'ledger', 'cashTx']) for (const o of await this.store.all(col)) if (o.reversalOf) done.add(o.reversalOf);
-    for (const m of await this.store.all('movements')) if (was(m) && !done.has(m.id)) docs.push({ col: 'movements', obj: { ...m, id: this.uid(), type: 'reversal', qty: -m.qty, value: -m.value, reversalOf: m.id, note, at } });
-    for (const l of await this.store.all('ledger')) if (was(l) && !done.has(l.id)) docs.push({ col: 'ledger', obj: { ...l, id: this.uid(), kind: 'reversal', amount: -l.amount, reversalOf: l.id, note, at } });
-    for (const c of await this.store.all('cashTx')) if (was(c) && !done.has(c.id)) docs.push({ col: 'cashTx', obj: { ...c, id: this.uid(), kind: 'reversal', amount: -c.amount, reversalOf: c.id, note, at } });
+    for (const col of ['ledger', 'cashTx']) for (const o of await this.store.all(col)) if (o.reversalOf) done.add(o.reversalOf);
+    for (const l of await this.store.all('ledger')) if (was(l) && !done.has(l.id)) docs.push({ col: 'ledger', obj: { ...l, id: this.uid(), kind: 'reversal', amount: -l.amount, reversalOf: l.id, note, at, ...extra } });
+    for (const c of await this.store.all('cashTx')) if (was(c) && !done.has(c.id)) docs.push({ col: 'cashTx', obj: { ...c, id: this.uid(), kind: 'reversal', amount: -c.amount, reversalOf: c.id, note, at, ...extra } });
     return docs;
+  }
+
+  // ---------- Recycle Bin: deleted bills and khata wait here for 30 days ----------
+  /** Delete a bill/estimate: it leaves the lists and reports at once and its cash/khata effect is reversed, but it can be restored. */
+  async deleteSale(id, by = '') {
+    this.need('delete');
+    return this.run(async () => {
+      const sale = await this.store.get('sales', id);
+      if (!sale || !['posted', 'open', 'cancelled'].includes(sale.status)) throw new ShopError('This record cannot be deleted');
+      const at = this.now(), docs = sale.status === 'posted' ? await this._reversalDocs(id, `Deleted ${sale.no}`, { viaDelete: true }) : [];
+      docs.push({ col: 'sales', obj: { ...sale, status: 'deleted', deletedFrom: sale.status, deletedAt: at, deletedBy: by, purgeAt: at + BIN_DAYS * 86400000 } });
+      await this.commit(docs);
+    });
+  }
+  /** Delete a customer together with the khata: hidden everywhere, restorable from the bin. */
+  async deleteCustomer(id, by = '') {
+    this.need('delete');
+    return this.run(async () => {
+      const c = this.customers.get(id);
+      if (!c) throw new ShopError('Customer not found');
+      const at = this.now();
+      await this.commit([{ col: 'customers', obj: { ...c, deleted: true, deletedAt: at, deletedBy: by, purgeAt: at + BIN_DAYS * 86400000 } }]);
+    });
+  }
+  async binList() {
+    this.need('bin');
+    await this.purgeExpired();
+    const now = this.now(), left = (o) => Math.max(0, Math.ceil((o.purgeAt - now) / 86400000));
+    const sales = (await this.store.all('sales')).filter((x) => x.status === 'deleted').sort((a, b) => b.deletedAt - a.deletedAt).map((x) => ({ ...x, daysLeft: left(x) }));
+    const customers = (await this.store.all('customers')).filter((x) => x.deleted).sort((a, b) => b.deletedAt - a.deletedAt)
+      .map((x) => ({ ...x, daysLeft: left(x), balance: this.balance('customer', x.id) }));
+    return { sales, customers };
+  }
+  async restoreRecord(kind, id) {
+    this.need('bin');
+    return this.run(async () => {
+      if (kind === 'sale') {
+        const sale = await this.store.get('sales', id);
+        if (!sale || sale.status !== 'deleted') throw new ShopError('Nothing to restore');
+        const undo = [];
+        for (const col of ['ledger', 'cashTx']) for (const r of await this.store.all(col)) if (r.refId === id && r.viaDelete) undo.push({ col, del: r.id });
+        const { deletedFrom, deletedAt, deletedBy, purgeAt, ...rest } = sale;
+        await this.store.batch([...undo, { col: 'sales', obj: { ...rest, status: deletedFrom || 'posted', updatedAt: this.now(), restoredAt: this.now() } }]);
+      } else {
+        const c = await this.store.get('customers', id);
+        if (!c || !c.deleted) throw new ShopError('Nothing to restore');
+        const { deleted, deletedAt, deletedBy, purgeAt, ...rest } = c;
+        await this.store.batch([{ col: 'customers', obj: { ...rest, updatedAt: this.now() } }]);
+      }
+      await this.rebuild();
+    });
+  }
+  /** permanent delete (admin). Bills: removes the bill and every cash/khata row of it. Customers: removes the profile and its khata rows. */
+  async purgeRecord(kind, id) {
+    this.need('bin');
+    return this.run(() => this._purge(kind, id));
+  }
+  async _purge(kind, id) {
+    const dels = [];
+    if (kind === 'sale') {
+      const sale = await this.store.get('sales', id);
+      if (!sale || sale.status !== 'deleted') throw new ShopError('Only records in the Recycle Bin can be deleted permanently');
+      dels.push({ col: 'sales', del: id });
+      for (const col of ['ledger', 'cashTx', 'movements']) for (const r of await this.store.all(col)) if (r.refId === id) dels.push({ col, del: r.id });
+    } else {
+      const c = await this.store.get('customers', id);
+      if (!c || !c.deleted) throw new ShopError('Only records in the Recycle Bin can be deleted permanently');
+      dels.push({ col: 'customers', del: id });
+      for (const r of await this.store.all('ledger')) if (r.party === 'customer' && r.partyId === id) dels.push({ col: 'ledger', del: r.id });
+    }
+    await this.store.batch(dels);
+    await this.rebuild();
+  }
+  /** removes everything that has been in the bin for 30 days. Runs when the app starts and when the bin is opened. */
+  async purgeExpired() {
+    const now = this.now(); let n = 0;
+    for (const x of await this.store.all('sales')) if (x.status === 'deleted' && x.purgeAt <= now) { await this._purge('sale', x.id); n++; }
+    for (const x of await this.store.all('customers')) if (x.deleted && x.purgeAt <= now) { await this._purge('customer', x.id); n++; }
+    return n;
   }
 
   // ---------- purchases (admin) ----------
@@ -413,8 +468,7 @@ ${this.cfg.shopName} ki taraf se yaad-dehani: aap ke zimme ${amt} baqi hain. Meh
       const pur = { id: this.uid(), no, status: 'posted', at, supplierId, ref, note, items, extra: extra | 0, discount: billDisc, total, paid, payments: pays };
       const docs = [doc, { col: 'purchases', obj: pur }];
       for (const it of items) {
-        docs.push(this._mov(it.productId, 'purchase', it.baseQty, it.landed, pur.id, no, at));
-        docs.push({ col: 'products', obj: { ...this.products.get(it.productId), lastCost: mulDiv(it.landed, 1000, it.baseQty) } });
+        docs.push({ col: 'products', obj: { ...this.products.get(it.productId), costPrice: mulDiv(it.landed, 1000, it.baseQty) } });   // latest purchase cost per base unit
       }
       docs.push(this._led('supplier', supplierId, 'purchase', total, pur.id, no, at, no));
       if (paid) docs.push(this._led('supplier', supplierId, 'payment', -paid, pur.id, `Paid at purchase ${no}`, at, no));
@@ -428,7 +482,6 @@ ${this.cfg.shopName} ki taraf se yaad-dehani: aap ke zimme ${amt} baqi hain. Meh
     return this.run(async () => {
       const pur = await this.store.get('purchases', id);
       if (!pur || pur.status !== 'posted') throw new ShopError('Only posted purchases can be cancelled');
-      if (!this.cfg.allowNegative) for (const it of pur.items) if (this.stockOf(it.productId).qty < it.baseQty) throw new ShopError(`Cannot cancel: ${it.name} was already sold`);
       const docs = await this._reversalDocs(id, `Cancelled ${pur.no}`);
       docs.push({ col: 'purchases', obj: { ...pur, status: 'cancelled', cancelReason: reason } });
       await this.commit(docs);
@@ -598,18 +651,12 @@ ${this.cfg.shopName} ki taraf se yaad-dehani: aap ke zimme ${amt} baqi hain. Meh
 
   /** Data safety check: do bills add up, do the cached balances match the saved rows, is anything negative? */
   async selfCheck() {
-    const issues = [], [sales, mv, lg, cx] = await Promise.all(['sales', 'movements', 'ledger', 'cashTx'].map((c) => this.store.all(c)));
+    const issues = [], [sales, lg, cx] = await Promise.all(['sales', 'ledger', 'cashTx'].map((c) => this.store.all(c)));
     for (const s of sales.filter((x) => x.type === 'sale' && x.status === 'posted')) {
       if (s.lines.reduce((a, l) => a + l.gross - l.discount, 0) - s.discount !== s.total) issues.push(`Bill ${s.no}: total does not match its items`);
       if (s.paid + s.credit !== s.total) issues.push(`Bill ${s.no}: paid + udhaar is not equal to the total`);
     }
     const sum = (rows, key, val) => { const m = new Map(); for (const r of rows) m.set(key(r), (m.get(key(r)) || 0) + val(r)); return m; };
-    const stockQ = sum(mv, (m) => m.productId, (m) => m.qty), stockV = sum(mv, (m) => m.productId, (m) => m.value);
-    for (const p of this.products.values()) {
-      const c = this.stockOf(p.id);
-      if (c.qty !== (stockQ.get(p.id) || 0) || c.value !== (stockV.get(p.id) || 0)) issues.push(`Stock of ${p.name} does not match its movements`);
-      if (c.qty < 0) issues.push(`${p.name} has negative stock`);
-    }
     const bal = sum(lg, (l) => `${l.party}:${l.partyId}`, (l) => l.amount);
     for (const [k, v] of bal) if (v !== (this.bal.get(k) || 0)) issues.push(`Khata balance mismatch (${k})`);
     const acc = sum(cx, (c) => c.account, (c) => c.amount);
@@ -618,7 +665,7 @@ ${this.cfg.shopName} ki taraf se yaad-dehani: aap ke zimme ${amt} baqi hain. Meh
       if (r.depositHeld < 0) issues.push(`Rental ${r.no}: negative deposit`);
       for (const i of r.items) if (i.returned > i.qty) issues.push(`Rental ${r.no}: more returned than rented`);
     }
-    return { ok: issues.length === 0, issues, counts: { products: this.products.size, customers: this.customers.size, bills: sales.filter((s) => s.type === 'sale').length, rentals: this.rentals.size, entries: mv.length + lg.length + cx.length } };
+    return { ok: issues.length === 0, issues, counts: { products: this.products.size, customers: this.customers.size, bills: sales.filter((s) => s.type === 'sale').length, rentals: this.rentals.size, entries: lg.length + cx.length } };
   }
 
   activeRentals() { return [...this.rentals.values()].filter((r) => r.status !== 'returned').sort((a, b) => a.outAt - b.outAt); }
@@ -680,19 +727,17 @@ ${this.cfg.shopName}: aap ke paas kiraye ka saman (${items}) hai. Meherbani kar 
     for (const c of all) { run += c.amount; if (c.at >= from && c.at < to) rows.push({ ...c, running: run }); }
     return rows;
   }
-  lowStock() { return [...this.products.values()].filter((p) => p.active && p.minStock > 0 && this.stockOf(p.id).qty <= p.minStock); }
   balances(party) {
     const src = party === 'customer' ? this.customers : this.suppliers;
     return [...src.values()].map((x) => ({ ...x, balance: this.balance(party, x.id) })).filter((x) => x.balance !== 0).sort((a, b) => b.balance - a.balance);
   }
-  stockValue() { this.need('profit'); let v = 0; for (const s of this.stock.values()) v += s.value; return v; }
 
   async dashboard() {
     const from = pktDayStart(this.now()), to = from + 86400000;
     const today = await this.sales({ from, to });
     const d = { todaySales: today.reduce((a, s) => a + s.total, 0), todayCount: today.length,
       receivable: this.balances('customer').filter((b) => b.balance > 0).reduce((a, b) => a + b.balance, 0),
-      lowStock: this.lowStock().length, rentalsOut: this.activeRentals().length,
+      rentalsOut: this.activeRentals().length,
       openEstimates: (await this.store.all('sales')).filter((s) => s.type === 'estimate' && s.status === 'open').length,
       accounts: Object.fromEntries(ACCOUNTS.map((a) => [a, this.accountBalance(a)])) };
     if (this.can('profit')) {
@@ -720,6 +765,7 @@ ${this.cfg.shopName}: aap ke paas kiraye ka saman (${items}) hai. Meherbani kar 
     }
     await this.store.batch(ops);
     await this.rebuild();
+    await this.migrateNoStock();
     return ops.length;
   }
 }

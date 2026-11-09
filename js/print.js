@@ -1,6 +1,7 @@
 // Receipts & invoices. One layout engine renders to <canvas>, so English AND Urdu print the same
 // everywhere: as an image for thermal printers (ESC/POS raster), a JPEG inside a PDF, or via browser print.
 import { fmtRs, fmtQty, fmtDateTime, waLink, esc } from './core.js';
+import { invoiceModel } from './invoice_model.js';
 
 // ---------- document rows (language-independent structure) ----------
 /** L(key) -> label. Returns rows consumed by layoutRows(). */
@@ -34,8 +35,29 @@ export function receiptRows(shop, sale, L, lang = 'en', { logo = null, logoFrac 
     if (cust) rows.push({ t: 'lr', l: L('khata_balance'), r: fmtRs(shop.balance('customer', cust.id)) });
   }
   rows.push({ t: 'line' });
-  rows.push({ t: 'center', text: cfg.footer || '', size: 0.85 });
+  const m = invoiceModel(shop, sale, L);
+  rows.push({ t: 'center', text: m.thanks, size: 0.95, bold: true });
+  rows.push({ t: 'center', text: m.policy, size: 0.75 });
   rows.push({ t: 'space', h: 24 });
+  return rows;
+}
+
+/** Professional invoice (A4 PDF / PNG / print): centred bold header with a subtle bottom border, item table, shaded totals box, thank-you + policy. */
+export function invoiceRows(shop, sale, L, lang = 'en', { logo = null, logoFrac = 0.16 } = {}) {
+  const m = invoiceModel(shop, sale, L), cols = [0.46, 0.16, 0.19, 0.19], aligns = ['left', 'right', 'right', 'right'];
+  const rows = [];
+  if (logo) rows.push({ t: 'image', img: logo, frac: logoFrac });
+  rows.push({ t: 'center', text: m.shop.name, size: 1.9, bold: true });
+  if (m.shop.address) rows.push({ t: 'center', text: m.shop.address, size: 0.9 });
+  if (m.shop.phone) rows.push({ t: 'center', text: `${L('phone')}: ${m.shop.phone}`, size: 0.9 });
+  rows.push({ t: 'rule', color: '#8fa0b4', w: 2 }, { t: 'space', h: 10 });
+  rows.push({ t: 'lr', l: `${m.title} #${m.no}`, r: m.date, bold: true });
+  if (m.customer) rows.push({ t: 'lr', l: `${L('customer')}: ${m.customer.name}`, r: m.customer.phone });
+  if (m.cancelled) rows.push({ t: 'center', text: '*** CANCELLED ***', bold: true });
+  rows.push({ t: 'space', h: 8 }, { t: 'thead', cols, aligns, cells: m.heads });
+  for (const l of m.lines) rows.push({ t: 'trow', cols, aligns, noteSmall: true, cells: [l.note ? `${l.desc}\n» ${l.note}` : l.desc, l.qty, l.price, l.total] });
+  rows.push({ t: 'space', h: 12 }, { t: 'box', frac: 0.56, rows: m.totals.map((x) => ({ l: x.label, r: x.value, bold: x.bold, big: x.big, hl: x.hl })) });
+  rows.push({ t: 'space', h: 16 }, { t: 'rule' }, { t: 'center', text: m.thanks, size: 1.15, bold: true }, { t: 'center', text: m.policy, size: 0.85 }, { t: 'space', h: 24 });
   return rows;
 }
 
@@ -45,7 +67,7 @@ export function layoutRows(measure, rows, W, { base = 22, pad = 10, lang = 'en' 
   const ur = false, ops = [];                 // Roman Urdu is left-to-right, same layout as English
   let y = pad;
   const font = (r) => `${r.bold ? 'bold ' : ''}${Math.round(base * (r.size || 1))}px ${FONT}`;
-  const wrap = (f, text, maxW) => {
+  const wrap1 = (f, text, maxW) => {
     const words = String(text).split(/\s+/), out = []; let cur = '';
     for (const w of words) {
       const t = cur ? `${cur} ${w}` : w;
@@ -54,10 +76,37 @@ export function layoutRows(measure, rows, W, { base = 22, pad = 10, lang = 'en' 
     if (cur) out.push(cur);
     return out.length ? out : [''];
   };
+  const wrap = (f, text, maxW) => String(text).split('\n').flatMap((part) => wrap1(f, part, maxW));
   for (const r of rows) {
     const f = font(r), lh = Math.round(base * (r.size || 1) * 1.35), inner = W - 2 * pad;
     if (r.t === 'line') { ops.push({ k: 'line', y: y + 6, x1: pad, x2: W - pad }); y += 14; }
     else if (r.t === 'space') y += r.h;
+    else if (r.t === 'rule') { ops.push({ k: 'line', y: y + 4, x1: pad, x2: W - pad, color: r.color || '#c9d2dc', w: r.w || 1 }); y += 12; }
+    else if (r.t === 'thead' || r.t === 'trow') {                       // table header / table row with fixed column fractions
+      const head = r.t === 'thead', cf = head ? font({ ...r, bold: true }) : f, widths = r.cols.map((c) => Math.round(inner * c));
+      const cells = r.cells.map((txt, i) => wrap(cf, txt, widths[i] - 14)), h = Math.max(...cells.map((c) => c.length)) * lh + 14;
+      if (head) ops.push({ k: 'rect', x: pad, y, w: inner, h, fill: r.fill || '#e3e9f1' });
+      let x = pad;
+      cells.forEach((lines, i) => {
+        const right = r.aligns[i] === 'right';
+        lines.forEach((ln, j) => ops.push({ k: 'text', f: j > 0 && !head && r.noteSmall ? font({ size: 0.85 }) : cf, text: ln, x: right ? x + widths[i] - 7 : x + 7, y: y + 7 + lh * 0.8 + j * lh, align: right ? 'right' : 'left' }));
+        x += widths[i];
+      });
+      if (!head) ops.push({ k: 'line', y: y + h, x1: pad, x2: W - pad, color: '#e3e8ee', w: 1 });
+      y += h;
+    }
+    else if (r.t === 'box') {                                              // shaded totals box; the grand-total row is bigger and bold
+      const w = Math.round(inner * (r.frac || 1)), x0 = W - pad - w, hs = r.rows.map((x) => Math.round(base * (x.big ? 1.4 : 1) * 1.5) + 10), total = hs.reduce((a, b) => a + b, 0) + 12;
+      ops.push({ k: 'rect', x: x0, y, w, h: total, fill: r.fill || '#f0f3f8', stroke: '#c3ccd8' });
+      let yy = y + 6;
+      r.rows.forEach((x, i) => {
+        const ff = font({ bold: x.bold, size: x.big ? 1.4 : 1 });
+        if (x.hl) ops.push({ k: 'rect', x: x0 + 2, y: yy, w: w - 4, h: hs[i], fill: '#d9e3f0' });
+        ops.push({ k: 'text', f: ff, text: x.l, x: x0 + 14, y: yy + hs[i] * 0.68, align: 'left' }, { k: 'text', f: ff, text: x.r, x: x0 + w - 14, y: yy + hs[i] * 0.68, align: 'right' });
+        yy += hs[i];
+      });
+      y += total + 8;
+    }
     else if (r.t === 'image') { const w = Math.round(W * r.frac), h = Math.round((w * r.img.height) / r.img.width); ops.push({ k: 'img', img: r.img, x: Math.round((W - w) / 2), y, w, h }); y += h + 8; }
     else if (r.t === 'center') for (const ln of wrap(f, r.text, inner)) { ops.push({ k: 'text', f, text: ln, x: W / 2, y: y + lh * 0.8, align: 'center' }); y += lh; }
     else if (r.t === 'text') for (const ln of wrap(f, r.text, inner)) { ops.push({ k: 'text', f, text: ln, x: ur ? W - pad : pad, y: y + lh * 0.8, align: ur ? 'right' : 'left' }); y += lh; }
@@ -76,7 +125,8 @@ export function paint(ctx, layout, W, rtl = false) {
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, layout.height);
   ctx.fillStyle = '#000'; ctx.strokeStyle = '#000'; ctx.textBaseline = 'alphabetic';
   for (const o of layout.ops) {
-    if (o.k === 'line') { ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(o.x1, o.y); ctx.lineTo(o.x2, o.y); ctx.stroke(); }
+    if (o.k === 'line') { ctx.strokeStyle = o.color || '#000'; ctx.lineWidth = o.w || 1; ctx.beginPath(); ctx.moveTo(o.x1, o.y); ctx.lineTo(o.x2, o.y); ctx.stroke(); ctx.strokeStyle = '#000'; }
+    else if (o.k === 'rect') { ctx.fillStyle = o.fill; ctx.fillRect(o.x, o.y, o.w, o.h); if (o.stroke) { ctx.strokeStyle = o.stroke; ctx.lineWidth = 1; ctx.strokeRect(o.x, o.y, o.w, o.h); ctx.strokeStyle = '#000'; } ctx.fillStyle = '#000'; }
     else if (o.k === 'img') ctx.drawImage(o.img, o.x, o.y, o.w, o.h);
     else { ctx.font = o.f; ctx.textAlign = o.align; ctx.direction = rtl ? 'rtl' : 'ltr'; ctx.fillText(o.text, o.x, o.y); }
   }

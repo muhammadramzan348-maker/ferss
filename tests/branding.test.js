@@ -29,9 +29,9 @@ test('offline cache (sw.js) contains the logo, banner and icons', () => {
 });
 
 test('app shell shows the logo on lock screen, header and sidebar; images used by the code exist', () => {
-  const app = readFileSync('js/app.js', 'utf8');
+  const app = readFileSync('js/app.js', 'utf8') + readFileSync('js/ui/login.js', 'utf8');
   for (const cls of ['lock-logo', 'top-logo', 'side-logo']) assert.ok(app.includes(cls), cls);
-  const used = new Set(); for (const f of ['js/app.js', 'js/ui/main_screens.js', 'js/ui/settings_screen.js', 'js/ui/output.js'])
+  const used = new Set(); for (const f of ['js/app.js', 'js/ui/login.js', 'js/ui/main_screens.js', 'js/ui/settings_screen.js', 'js/ui/output.js'])
     for (const m of readFileSync(f, 'utf8').matchAll(/img\/[\w-]+\.(?:png|jpg)/g)) used.add(m[0]);
   assert.ok(used.size >= 3); for (const f of used) assert.ok(existsSync(f), f);
 });

@@ -2,12 +2,12 @@ import { esc, fmtQty, fmtDateTime, parseRs, parseQtyLoose, qtyForAmount, listPri
 import { S, acts, ins, chg, t, money, can, isAdmin, pname, unitName, qtyText, field, select, btn, table, accountOptions,
   customerOptions, openSheet, closeSheet, sheetEl, formData, attempt, toast, go, refresh, ask, lp, $ } from './ctx.js';
 import { thermalPrint, sharePdf, a4Print, whatsappText, shareShopCard } from './output.js';
+import { invoiceHtml, invoiceButtons, openInvoicePreview } from './invoice_view.js';
 import { ShopError, ACCOUNTS } from '../db.js';
 
 // ================= DASHBOARD =================
 export async function dashboard() {
   const d = await S.shop.dashboard();
-  const low = S.shop.lowStock().slice(0, 5);
   const overdue = S.shop.activeRentals().filter((r) => r.dueAt && r.dueAt < S.shop.now()).length;
   const stat = (label, val, cls = '') => `<div class="stat ${cls}"><div class="v">${val}</div><div class="l">${label}</div></div>`;
   const banner = S.shop.cfg.showBanner !== false;
@@ -18,7 +18,6 @@ export async function dashboard() {
     ${d.todayProfit !== undefined ? stat(t('today_profit'), money(d.todayProfit), 'good') : ''}
     ${stat(t('receivable'), money(d.receivable), 'warn')}
     ${d.payable !== undefined ? stat(t('payable'), money(d.payable), 'bad') : ''}
-    ${stat(t('low_stock'), d.lowStock, d.lowStock ? 'bad' : '')}
     ${stat(t('rentals_out'), `${d.rentalsOut}${overdue ? ` <small class="bad">(${overdue} ${t('overdue')})</small>` : ''}`)}
   </div>
   <div class="card"><h3>${t('accounts')}</h3><div class="grid stats">${ACCOUNTS.map((a) => stat(t(`acc_${a}`), money(d.accounts[a]), d.accounts[a] < 0 ? 'bad' : '')).join('')}</div></div>
@@ -28,7 +27,6 @@ export async function dashboard() {
     <a class="btn" href="#/items">📦 ${t('items')}</a>${isAdmin() ? `<a class="btn" href="#/expenses">🧾 ${t('expenses')}</a>` : ''}
   </div></div>
   ${isAdmin() && Date.now() - Math.max(Number(lp('lastBackup', 0)), Number(lp('lastDriveBackup', 0))) > 7 * 86400000 ? `<div class="card late"><a href="#/settings">☁ ${t('backup_old')}</a></div>` : ''}
-  ${low.length ? `<div class="card"><h3>⚠ ${t('low_stock')}</h3>${low.map((p) => `<div class="li"><span>${esc(pname(p))} ${esc(p.size)}</span><b class="bad">${qtyText(p, S.shop.stockOf(p.id).qty)}</b></div>`).join('')}</div>` : ''}
   ${d.openEstimates ? `<div class="card"><a href="#/sales?tab=estimates">📝 ${d.openEstimates} ${t('open_estimates')} →</a></div>` : ''}`;
 }
 acts.newEstimate = () => { S.cart = newCart(); };
@@ -49,9 +47,8 @@ export async function pos() {
 function posResults(q) {
   const list = S.shop.searchProducts(q, { limit: 40 });
   if (!list.length) return `<p class="empty">${t('empty')}</p>`;
-  return list.map((p) => { const st = S.shop.stockOf(p.id).qty;
-    return `<button class="item" data-act="addLine" data-id="${p.id}"><div><b>${esc(pname(p))}</b> <small>${esc(p.size)} ${esc(p.brand)}</small>
-      <div class="sub ${st <= 0 ? 'bad' : ''}">${t('stock')}: ${qtyText(p, st)}</div></div><div class="r"><b>${money(p.retailPrice)}</b><small>/${unitName(p.sellUnit)}</small></div></button>`; }).join('');
+  return list.map((p) => {
+    return `<button class="item" data-act="addLine" data-id="${p.id}"><div><b>${esc(pname(p))}</b> <small>${esc(p.size)} ${esc(p.brand)}</small></div><div class="r"><b>${money(p.retailPrice)}</b><small>/${unitName(p.sellUnit)}</small></div></button>`; }).join('');
 }
 ins.posSearch = (el) => { $('#pos-results').innerHTML = posResults(el.value); };
 
@@ -136,7 +133,7 @@ export function openLineSheet(p, idx, cart, redraw) {
   const l = idx != null ? cart.lines[idx] : null, byAmt = l?.amount != null;
   const units = [p.baseUnit, ...p.units.map((u) => u.unit)];
   const unit = l?.unit || p.sellUnit, price = l?.price ?? listPrice(p, cart.priceMode || 'retail');
-  openSheet(`<h3>${esc(pname(p))} <small>${esc(p.size)}</small></h3><p class="sub">${t('stock')}: ${qtyText(p, S.shop.stockOf(p.id).qty)}</p>
+  openSheet(`<h3>${esc(pname(p))} <small>${esc(p.size)}</small></h3>
     <div class="seg wide"><button class="${byAmt ? '' : 'on'}" data-act="lineMode" data-mode="qty">${t('by_qty')}</button><button class="${byAmt ? 'on' : ''}" data-act="lineMode" data-mode="amt">${t('by_amount')}</button></div>
     <form data-pid="${p.id}" data-idx="${idx ?? ''}" data-mode="${byAmt ? 'amt' : 'qty'}" onsubmit="return false" id="lineForm">
       <div data-pane="qty" ${byAmt ? 'hidden' : ''}><div class="row">${field('qty', t('quantity'), l && !byAmt ? fmtQty(l.qty) : '1', { attrs: `inputmode="decimal" data-in="lineCalc" placeholder="${esc(t('qty_hint'))}"`, cls: 'grow' })}
@@ -202,14 +199,8 @@ acts.saveEstimate = () => attempt(async () => {
   const e = await S.shop.saveEstimate(cartInput(S.cart));
   S.cart = newCart(); redrawCart(); billDone(e);
 });
-export function billDone(sale) {
-  const est = sale.type === 'estimate';
-  openSheet(`<h3>✔ ${est ? t('estimate_saved') : t('bill_saved')}</h3><p class="big">${esc(sale.no)} — ${money(sale.total)}</p>
-    <div class="col">${btn('doThermal', '🖨 ' + t('thermal_print'), { cls: 'pri big', data: { id: sale.id } })}
-    ${btn('doPdf', '📲 ' + t('send_pdf_whatsapp'), { cls: 'big', data: { id: sale.id } })}
-    ${btn('doA4', '📄 ' + t('print_a4'), { data: { id: sale.id } })}${btn('doWaText', '💬 ' + t('send_text_whatsapp'), { data: { id: sale.id } })}
-    ${btn('closeSheet', t('new_sale'), { cls: 'link' })}</div>`);
-}
+/** after Finalize Bill / Save estimate: the invoice preview with Save / Download and Share */
+export function billDone(sale) { return openInvoicePreview(sale); }
 const saleOf = (el) => S.shop.store.get('sales', el.dataset.id);
 acts.doThermal = async (el) => thermalPrint(await saleOf(el));
 acts.doPdf = async (el) => sharePdf(await saleOf(el));
@@ -242,24 +233,12 @@ chg.histSearch = (el) => { hq.q = el.value; refresh(); };
 export async function saleDetail(id) {
   const s = await S.shop.store.get('sales', id);
   if (!s) return `<p class="empty">${t('not_found')}</p>`;
-  const cust = s.customerId ? S.shop.customers.get(s.customerId) : null, est = s.type === 'estimate';
-  return `<a href="#/sales" class="back">← ${t('sales')}</a><div class="card"><h2>${est ? t('estimate') : t('invoice')} ${esc(s.no)}</h2>
-    <p>${fmtDateTime(s.at)} · ${esc(cust?.name || t('walk_in'))} ${s.status !== 'posted' && s.status !== 'open' ? `<b class="bad">[${s.status}]</b>` : ''}</p>
-    ${table([t('item'), t('quantity'), t('price'), t('total')], s.lines.map((l) => [esc(l.name) + (l.size ? ` <small>${esc(l.size)}</small>` : '') + (l.note ? `<br><small>📝 ${esc(l.note)}</small>` : ''), `${fmtQty(l.qty)} ${unitName(l.unit)}`, `${money(l.price)}/${unitName(l.priceUnit || l.unit)}`, money(l.gross - l.discount)]), { right: [1, 2, 3] })}
-    <div class="li"><span>${t('subtotal')}</span><b>${money(s.subtotal)}</b></div>
-    ${s.discount ? `<div class="li"><span>${t('bill_discount')}</span><b>−${money(s.discount)}</b></div>` : ''}
-    <div class="li"><span>${t('total')}</span><b>${money(s.total)}</b></div>
-    ${est ? '' : `<div class="li"><span>${t('paid')}</span><b>${money(s.paid)}</b></div><div class="li"><span>${t('udhaar')}</span><b>${money(s.credit)}</b></div>
-    ${isAdmin() ? `<div class="li"><span>${t('cost')}</span><b>${money(s.cogs)}</b></div><div class="li"><span>${t('profit')}</span><b class="good">${money(s.total - s.cogs)}</b></div>` : ''}`}
-    <div class="col">${btn('doThermal', '🖨 ' + t('thermal_print'), { cls: 'pri', data: { id } })}${btn('doPdf', '📲 ' + t('send_pdf_whatsapp'), { data: { id } })}
-    ${btn('doA4', '📄 ' + t('print_a4'), { data: { id } })}${btn('doWaText', '💬 ' + t('send_text_whatsapp'), { data: { id } })}
-    ${est && s.status === 'open' ? btn('convertEstimate', '✔ ' + t('convert_to_bill'), { cls: 'pri big', data: { id } }) : ''}
-    ${!est && s.status === 'posted' && isAdmin() ? btn('cancelBill', '✕ ' + t('cancel_bill'), { cls: 'danger', data: { id } }) : ''}</div></div>`;
+  const est = s.type === 'estimate';
+  return `<a href="#/sales" class="back">← ${t('sales')}</a><div class="inv-page">${invoiceHtml(s)}</div>
+    ${isAdmin() && !est ? `<div class="card"><div class="li"><span>${t('cost')}</span><b>${money(s.cogs)}</b></div><div class="li"><span>${t('profit')}</span><b class="good">${money(s.total - s.cogs)}</b></div></div>` : ''}
+    <div class="card">${invoiceButtons(s)}<div class="col">${est && s.status === 'open' ? btn('convertEstimate', '✔ ' + t('convert_to_bill'), { cls: 'pri big', data: { id } }) : ''}
+    ${s.status === 'posted' || s.status === 'open' ? btn('deleteBill', '🗑 ' + t('delete_bill'), { cls: 'danger', data: { id } }) : ''}</div></div>`;
 }
-acts.cancelBill = (el) => attempt(async () => {
-  if (!ask(t('confirm_cancel_bill'))) return;
-  await S.shop.cancelSale(el.dataset.id, 'cancelled by admin'); toast(t('saved')); refresh();
-});
 acts.convertEstimate = async (el) => {
   const s = await saleOf(el), cust = s.customerId;
   openSheet(`<h3>${t('convert_to_bill')} ${esc(s.no)}</h3><p class="big">${money(s.total)}</p>

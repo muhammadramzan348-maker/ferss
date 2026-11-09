@@ -1,5 +1,5 @@
 // Generated into ../sw.js by tools/gen_sw.py (do not edit sw.js by hand).
-const VERSION = 'ramzan-6c1e82edbf';
+const VERSION = 'ramzan-d8c22443e0';
 const FILES = [
  "./",
  "./index.html",
@@ -19,15 +19,20 @@ const FILES = [
  "./js/db.js",
  "./js/gdrive.js",
  "./js/i18n.js",
+ "./js/invoice_model.js",
  "./js/print.js",
  "./js/store.js",
  "./js/theme.js",
  "./js/ui/backup_actions.js",
+ "./js/ui/bin_screen.js",
  "./js/ui/ctx.js",
+ "./js/ui/invoice_view.js",
  "./js/ui/khata_screen.js",
+ "./js/ui/login.js",
  "./js/ui/main_screens.js",
  "./js/ui/ops_screens.js",
  "./js/ui/output.js",
+ "./js/ui/pin_modal.js",
  "./js/ui/settings_screen.js",
  "./js/ui/stock_screens.js"
 ];

@@ -8,6 +8,9 @@ import * as K from './ui/stock_screens.js';
 import * as O from './ui/ops_screens.js';
 import { khataScreen } from './ui/khata_screen.js';
 import { settingsScreen } from './ui/settings_screen.js';
+import { loginHtml } from './ui/login.js';
+import { binScreen } from './ui/bin_screen.js';
+import './ui/pin_modal.js';
 import { esc } from './core.js';
 import { applyTheme, getTheme, toggleTheme, browserEnv } from './theme.js';
 
@@ -20,9 +23,9 @@ export const ROUTES = [
   [/^customers$/, () => K.partyList('customer')], [/^customer\/(.+)$/, (m) => K.partyDetail('customer', m[1])],
   [/^suppliers$/, () => K.partyList('supplier')], [/^supplier\/(.+)$/, (m) => K.partyDetail('supplier', m[1])],
   [/^purchase$/, (m, q) => K.purchaseScreen(q)], [/^rentals$/, () => O.rentalsScreen()], [/^rental\/new$/, () => O.rentalNew()], [/^rental\/(.+)$/, (m) => O.rentalDetail(m[1])],
-  [/^expenses$/, () => O.expensesScreen()], [/^reports$/, () => O.reportsScreen()], [/^settings$/, () => settingsScreen()],
+  [/^expenses$/, () => O.expensesScreen()], [/^reports$/, () => O.reportsScreen()], [/^settings$/, () => settingsScreen()], [/^bin$/, () => binScreen()],
 ];
-const ADMIN_ONLY = /^(suppliers|supplier\/|purchase|expenses)/;
+const ADMIN_ONLY = /^(suppliers|supplier\/|purchase|expenses|bin)/;
 
 async function boot() {
   applyTheme(getTheme(browserEnv()), document);
@@ -39,33 +42,16 @@ async function boot() {
 // Roman Urdu is written in English letters, so the layout is always left-to-right.
 function applyLang() { document.documentElement.lang = S.lang === 'ur' ? 'ur-Latn' : 'en'; document.documentElement.dir = 'ltr'; }
 
-// ---------- lock screen ----------
+// ---------- login screen (Username + PIN) ----------
 async function showLock() {
   clearTimeout(idleTimer); closeSheet();
-  S.shop.role = null;
-  const setup = !(await S.auth.isSetUp());
-  root.innerHTML = `<div class="lock"><div class="lock-box"><img class="lock-logo" src="img/logo-256.png" alt="Ramzan Electric Store & Hardware"><h1>${esc(S.shop.cfg.shopName)}</h1>
-    ${setup ? `<p>${t('first_run')}</p><input id="pin1" type="password" inputmode="numeric" maxlength="8" placeholder="${t('new_pin')}" autocomplete="off"><input id="pin2" type="password" inputmode="numeric" maxlength="8" placeholder="${t('confirm_pin')}" autocomplete="off">
-    <button class="btn pri big" id="pinSet">${t('save')}</button>`
-      : `<input id="pin" type="password" inputmode="numeric" maxlength="8" placeholder="${t('enter_pin')}" autocomplete="off" autofocus><button class="btn pri big" id="pinGo">🔓 ${t('unlock')}</button>`}
-    <p class="bad" id="pinErr"></p><div class="row"><button class="btn link" id="langBtn">${S.lang === 'en' ? 'Roman Urdu' : 'English'}</button><button class="btn link" id="themeBtn">🌓</button></div></div></div>`;
+  S.shop.role = null; S.user = null;
+  root.innerHTML = loginHtml({ setup: !(await S.auth.isSetUp()) });
   $('#langBtn').onclick = () => { setLang(S.lang === 'en' ? 'ur' : 'en'); showLock(); };
   $('#themeBtn').onclick = () => toggleTheme(browserEnv());
-  const err = (m) => { $('#pinErr').textContent = m; };
-  if (setup) {
-    $('#pinSet').onclick = async () => {
-      const a = $('#pin1').value, b = $('#pin2').value;
-      if (a !== b) return err(t('pin_mismatch'));
-      try { await S.auth.setPin('admin', a); S.shop.role = 'admin'; startApp(); } catch (e) { err(e instanceof AuthError ? t(`pin_${e.code}`) : e.message); }
-    };
-  } else {
-    const go = async () => {
-      try { const role = await S.auth.login($('#pin').value); S.shop.role = role; startApp(); }
-      catch (e) { err(e.code === 'locked' ? `${t('pin_locked')} (${Math.ceil(e.retryMs / 1000)}s)` : t('pin_wrong')); $('#pin').value = ''; }
-    };
-    $('#pinGo').onclick = go; $('#pin').onkeydown = (e) => { if (e.key === 'Enter') go(); };
-  }
+  const pin = $('#loginPin'); if (pin) pin.onkeydown = (e) => { if (e.key === 'Enter') acts.loginSubmit(); };
 }
+window.addEventListener('app:login', (e) => { S.user = e.detail; S.shop.role = e.detail.role; startApp(); });
 window.addEventListener('app:lock', showLock);
 
 // ---------- shell ----------
@@ -77,13 +63,13 @@ window.addEventListener('app:theme', () => { const b = $('#themeTop'); if (b) b.
 function navItems() {
   const a = isAdmin();
   return [['#/', '🏠', t('home')], ['#/sell', '🛒', t('sell')], ['#/khata', '📒', t('khata_entry')], ['#/items', '📦', t('items')], ['#/sales', '🧾', t('sales')], ['#/customers', '👥', t('customers')], ['#/rentals', '🪑', t('rentals')],
-    ...(a ? [['#/suppliers', '🚚', t('suppliers')], ['#/expenses', '💸', t('expenses')]] : []), ['#/reports', '📊', t('reports')], ['#/settings', '⚙', t('settings')]];
+    ...(a ? [['#/suppliers', '🚚', t('suppliers')], ['#/expenses', '💸', t('expenses')], ['#/bin', '🗑', t('recycle_bin')]] : []), ['#/reports', '📊', t('reports')], ['#/settings', '⚙', t('settings')]];
 }
 function startApp() {
   const items = navItems(), primary = items.slice(0, 4);
   root.innerHTML = `<div class="shell"><aside class="side"><div class="logo"><img class="side-logo" src="img/logo-256.png" alt=""><span>${esc(S.shop.cfg.shopName)}</span></div>${items.map(([h, i, l]) => `<a href="${h}" data-nav="${h}">${i} <span>${l}</span></a>`).join('')}</aside>
-    <div class="content"><header class="top"><img class="top-logo" src="img/logo-256.png" alt=""><b class="ttl">${esc(S.shop.cfg.shopName)}</b><span class="grow"></span><span class="role">${S.shop.role === 'admin' ? '👑' : '🧑‍💼'}</span>
-      <button class="ic" id="themeTop" title="Light / Dark">${themeIcon()}</button><button class="ic" id="langTop">${S.lang === 'en' ? 'RU' : 'EN'}</button><button class="ic" id="lockTop" title="${t('lock')}">🔒</button></header>
+    <div class="content"><header class="top"><img class="top-logo" src="img/logo-256.png" alt=""><b class="ttl">${esc(S.shop.cfg.shopName)}</b><span class="grow"></span><span class="role" title="${t('logged_in_as')}">${S.user?.role === 'admin' ? '👑' : '🧑‍💼'} ${esc(S.user?.username || '')}</span>
+      <button class="ic" id="themeTop" title="Light / Dark">${themeIcon()}</button><button class="ic" id="langTop">${S.lang === 'en' ? 'RU' : 'EN'}</button><button class="ic" id="lockTop" title="${t('logout')}">🔒</button></header>
       <main id="main"></main></div>
     <nav class="bottom">${primary.map(([h, i, l]) => `<a href="${h}" data-nav="${h}">${i}<span>${l}</span></a>`).join('')}<a href="#" data-act="moreMenu">☰<span>${t('more')}</span></a></nav></div>`;
   $('#lockTop').onclick = showLock;

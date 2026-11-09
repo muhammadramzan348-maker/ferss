@@ -39,8 +39,8 @@ function linkText() {
   return `✔ ${t('existing_customer')} · ${t('previous_balance')}: <b>${money(S.shop.balance('customer', k.customerId))}</b>`;
 }
 function results(q) {
-  return S.shop.searchProducts(q, { limit: 30 }).map((p) => { const st = S.shop.stockOf(p.id).qty;
-    return `<button class="item" data-act="khAdd" data-id="${p.id}"><div><b>${esc(pname(p))}</b> <small>${esc(p.size)} ${esc(p.brand)}</small><div class="sub ${st <= 0 ? 'bad' : ''}">${t('stock')}: ${qtyText(p, st)}</div></div>
+  return S.shop.searchProducts(q, { limit: 30 }).map((p) => {
+    return `<button class="item" data-act="khAdd" data-id="${p.id}"><div><b>${esc(pname(p))}</b> <small>${esc(p.size)} ${esc(p.brand)}</small></div>
       <div class="r"><b>${money(p.retailPrice)}</b><small>/${unitName(p.sellUnit)}</small></div></button>`; }).join('') || `<p class="empty">${t('empty')}</p>`;
 }
 function cartHtml() {

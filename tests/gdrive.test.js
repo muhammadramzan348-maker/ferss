@@ -60,7 +60,7 @@ test('first backup creates ramzan_store_backup.json; the app never sees other fi
   assert.deepEqual((await drive.list()).map((f) => f.name), [BACKUP_NAME]);
   const phone2 = await mkShop(); S.shop = phone2;                                    // restore onto a brand-new phone
   await phone2.importAll(await drive.fetchBackup(file.id));
-  assert.equal(phone2.stockOf(paris.id).qty, 9750); assert.equal(phone2.accountBalance('cash'), 1000);
+  assert.equal(phone2.products.get(paris.id).costPrice, 4500); assert.equal(phone2.accountBalance('cash'), 1000);
   assert.equal(phone2.balance('customer', ali.id), 500); assert.equal((await phone2.sales()).length, 1);
 });
 
@@ -130,7 +130,7 @@ test('startGoogleBackup / startGoogleRestore: backup twice, restore shows ONE la
   const files = await startGoogleRestore(api);
   assert.equal(files.length, 1); assert.ok(dom.sheets.some((h) => h.includes('gdPick') && h.includes(BACKUP_NAME.slice(0, 5))));
   const { restored, safety } = await restoreFromDrive(files[0].id, api);
-  assert.ok(restored > 0); assert.equal(shop.stockOf(paris.id).qty, 9500);           // = the state at the 2nd (latest) backup
+  assert.ok(restored > 0); assert.equal(shop.accountBalance('cash'), 3000);          // = the state at the 2nd (latest) backup
   assert.equal(safety.data.sales.length, 2);
   shop.role = 'salesman'; dom.reset(); assert.equal(await startGoogleBackup(api), undefined); assert.ok(dom.toasts.some((x) => x.error));
 });

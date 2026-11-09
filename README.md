@@ -1,10 +1,11 @@
 # RAMZAN ELECTRIC STORE & HARDWARE — Shop PWA
 
-Installable, offline-first web app: POS with weight calculator, estimates, udhaar khata + Khata Entry screen, WhatsApp reminders/PDF,
-thermal receipts, suppliers & purchases, expenses, rentals, reports, PIN lock (Admin/Salesman), Light/Dark mode, Google Drive backup.
+Installable, offline-first web app: POS with weight calculator, estimates, udhaar khata + customer profiles, Khata Entry, professional invoices (preview, PDF/PNG download, share),
+WhatsApp reminders, thermal receipts, suppliers & purchases, expenses, date-wise rentals, reports, Username+PIN login with Master PIN recovery, PIN-protected deletes + 30-day Recycle Bin,
+Light/Dark mode, Google Drive backup. No stock tracking.
 English + Roman Urdu (Urdu in English letters). No build step, no dependencies. See `CHANGES.md` for the latest update.
 
-    node --test        # Node 20+; 88 tests
+    node --test        # Node 20+; 115 tests
 
 ## Deploy (GitHub Pages)
 1. Put this folder in your repository (e.g. `ramzan_pwa/`).
@@ -20,5 +21,5 @@ Or Settings → Data safety → Download backup now (JSON file on the phone). Th
 ## Design notes
 * Money = integer paise, quantity = integer thousandths. A line's price is per SELL unit; totals are exact (one rounding).
 * Stock = sum of movements; cost = weighted average; a sale's cost is frozen on the bill. Cancel = reversal rows.
-* PIN lock is per phone (PBKDF2 hash). It keeps people out of the app; it is not protection against technical access to the phone.
+* Users/PINs are per phone (PBKDF2 hashes). They keep people out of the app; they are not protection against technical access to the phone. Keep the Master Admin PIN safe.
 * Not included: sale returns, tax. Printing: RawBT app (recommended), BLE Web Bluetooth, or browser print.

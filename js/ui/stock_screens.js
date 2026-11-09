@@ -2,6 +2,7 @@ import { esc, fmtQty, fmtDateTime, parseQty, parseRs, presetUnits, lineAmount, U
 import { S, acts, ins, chg, t, money, can, isAdmin, pname, unitName, qtyText, field, select, btn, table, accountOptions,
   openSheet, closeSheet, sheetEl, formData, attempt, toast, go, refresh, ask, $ } from './ctx.js';
 import { ACCOUNTS } from '../db.js';
+import { confirmWithPin } from './pin_modal.js';
 
 const safeRs = (s) => { try { return s ? parseRs(s) : 0; } catch { return 0; } };
 
@@ -17,9 +18,9 @@ export async function itemsList() {
 }
 function itemRows(list) {
   if (!list.length) return `<p class="empty">${t('empty')}</p>`;
-  return `<div class="card">${list.map((p) => { const st = S.shop.stockOf(p.id), low = p.minStock > 0 && st.qty <= p.minStock;
-    return `<a class="li link" href="#/item/${p.id}"><span><b>${esc(pname(p))}</b> <small>${esc(p.size)} ${esc(p.brand)}</small><br><small class="${low || st.qty < 0 ? 'bad' : ''}">${t('stock')}: ${qtyText(p, st.qty)}${low ? ' ⚠' : ''}</small></span>
-      <span class="r"><b>${money(p.retailPrice)}</b>/${unitName(p.sellUnit)}${isAdmin() ? `<br><small>${t('cost')}: ${money(S.shop.avgCost(p.id))}/${unitName(p.baseUnit)}</small>` : ''}</span></a>`; }).join('')}</div>`;
+  return `<div class="card">${list.map((p) => {
+    return `<a class="li link" href="#/item/${p.id}"><span><b>${esc(pname(p))}</b> <small>${esc(p.size)} ${esc(p.brand)}</small><br><small>${esc(p.sku)}</small></span>
+      <span class="r"><b>${money(p.retailPrice)}</b>/${unitName(p.sellUnit)}${isAdmin() ? `<br><small>${t('cost')}: ${money(p.costPrice | 0)}/${unitName(p.baseUnit)}</small>` : ''}</span></a>`; }).join('')}</div>`;
 }
 ins.itemSearch = (el) => { iq.q = el.value; $('#items-results').innerHTML = itemRows(S.shop.searchProducts(iq.q, { category: iq.cat, limit: 200 })); };
 acts.itemCat = (el) => { iq.cat = el.dataset.id; refresh(); };
@@ -44,24 +45,21 @@ export async function itemForm(id) {
   if (id !== 'new' && !p) return `<p class="empty">${t('not_found')}</p>`;
   const cats = [...S.shop.categories.values()].map((c) => [c.id, S.lang === 'ur' ? c.nameUr : c.nameEn]);
   const base = p?.baseUnit || 'pc', admin = can('manage_items');
-  const st = p ? S.shop.stockOf(p.id) : null;
   return `<a href="#/items" class="back">← ${t('items')}</a><form class="card" id="itemForm" data-id="${p?.id || ''}" onsubmit="return false">
     <h2>${p ? esc(p.name) : t('add_item')}</h2>
-    ${p ? `<div class="li"><span>${t('stock')}</span><b>${qtyText(p, st.qty)}</b></div>${isAdmin() ? `<div class="li"><span>${t('avg_cost')}</span><b>${money(S.shop.avgCost(p.id))}/${unitName(p.baseUnit)}</b></div><div class="li"><span>${t('stock_value')}</span><b>${money(st.value)}</b></div>` : ''}` : ''}
     <fieldset ${admin ? '' : 'disabled'}>
     ${field('name', t('name') + ' (English)', p?.name)}${field('nameUr', t('name') + ' (Roman Urdu)', p?.nameUr)}
     <div class="row">${field('sku', t('sku'), p?.sku, { cls: 'grow' })}${field('barcode', t('barcode'), p?.barcode, { cls: 'grow' })}</div>
     ${select('category', t('category'), [['', '—'], ...cats], p?.category)}
     <div class="row">${field('brand', t('brand'), p?.brand, { cls: 'grow' })}${field('size', t('size'), p?.size, { cls: 'grow' })}</div>
-    <div class="row">${select('baseUnit', t('base_unit'), Object.keys(UNITS).map((u) => [u, unitName(u)]), base, `${p && S.shop.stock.has(p.id) ? 'disabled' : ''} data-chg="baseChanged"`)}
+    <div class="row">${select('baseUnit', t('base_unit'), Object.keys(UNITS).map((u) => [u, unitName(u)]), base, 'data-chg="baseChanged"')}
       ${select('sellUnit', t('sell_unit'), [base, ...(p?.units || []).map((u) => u.unit)].map((u) => [u, unitName(u)]), p?.sellUnit || base)}</div>
     <label class="f"><span>${t('other_units')} <small>(${t('units_help')})</small></span><textarea name="units" rows="3" dir="ltr">${esc(unitsToText(p?.units || presetUnits(base)))}</textarea></label>
     <div class="row">${field('retail', `${t('retail_price')} / ${t('sell_unit')}`, p ? String(p.retailPrice / 100) : '', { attrs: 'inputmode="decimal"', cls: 'grow' })}${field('wholesale', t('wholesale_price'), p ? String(p.wholesalePrice / 100) : '', { attrs: 'inputmode="decimal"', cls: 'grow' })}</div>
-    ${field('minStock', `${t('min_stock')} (${t('base_unit')})`, p ? fmtQty(p.minStock) : '', { attrs: 'inputmode="decimal"' })}
-    ${p ? '' : `<div class="row">${field('openQty', `${t('opening_stock')} (${t('base_unit')})`, '', { attrs: 'inputmode="decimal"', cls: 'grow' })}${field('openCost', t('opening_cost'), '', { attrs: 'inputmode="decimal"', cls: 'grow' })}</div>`}
+    ${isAdmin() ? field('costPrice', `${t('cost_price')} / ${unitName(base)}`, p ? (p.costPrice / 100).toFixed(2) : '', { attrs: 'inputmode="decimal"' }) : ''}
     </fieldset>
     ${admin ? btn('saveItem', t('save'), { cls: 'pri big' }) : ''}
-    ${p && isAdmin() ? `<div class="row wrap">${btn('adjustItem', '± ' + t('adjust_stock'), { data: { id: p.id } })}${btn('resetItem', t('reset_stock'), { cls: 'danger', data: { id: p.id } })}${btn('archiveItem', p.active ? t('archive') : t('restore'), { data: { id: p.id } })}</div>` : ''}
+    ${p && isAdmin() ? `<div class="row wrap">${btn('archiveItem', p.active ? t('archive') : t('restore'), { data: { id: p.id } })}</div>` : ''}
   </form>`;
 }
 chg.baseChanged = (el) => {
@@ -73,23 +71,10 @@ acts.saveItem = () => attempt(async () => {
   const f = formData($('#itemForm')), id = $('#itemForm').dataset.id;
   const units = textToUnits(f.units);
   const input = { id: id || undefined, name: f.name, nameUr: f.nameUr, sku: f.sku, barcode: f.barcode, category: f.category, brand: f.brand, size: f.size,
-    baseUnit: f.baseUnit || S.shop.products.get(id)?.baseUnit, sellUnit: f.sellUnit, units, retailPrice: safeRs(f.retail), wholesalePrice: safeRs(f.wholesale),
-    minStock: f.minStock ? parseQty(f.minStock) : 0 };
-  const p = await S.shop.saveProduct(input, id ? {} : { openingQty: f.openQty ? parseQty(f.openQty) : 0, openingValue: safeRs(f.openCost) });
+    baseUnit: f.baseUnit || S.shop.products.get(id)?.baseUnit, sellUnit: f.sellUnit, units, retailPrice: safeRs(f.retail), wholesalePrice: safeRs(f.wholesale) };
+  if (f.costPrice != null) input.costPrice = safeRs(f.costPrice);
+  const p = await S.shop.saveProduct(input);
   toast(t('saved')); go(`#/item/${p.id}`);
-});
-acts.adjustItem = (el) => {
-  const p = S.shop.products.get(el.dataset.id);
-  openSheet(`<h3>${t('adjust_stock')}: ${esc(p.name)}</h3><p>${t('stock')}: ${qtyText(p, S.shop.stockOf(p.id).qty)}</p>
-    ${field('delta', `+ / − (${unitName(p.baseUnit)})`, '', { attrs: 'inputmode="decimal"' })}${field('reason', t('reason'))}${btn('doAdjust', t('save'), { cls: 'pri big', data: { id: p.id } })}`);
-};
-acts.doAdjust = (el) => attempt(async () => {
-  const f = formData(sheetEl());
-  await S.shop.adjustStock(el.dataset.id, parseQty(f.delta), f.reason); closeSheet(); toast(t('saved')); refresh();
-});
-acts.resetItem = (el) => attempt(async () => {
-  const reason = window.prompt(t('reset_reason')); if (!reason) return;
-  await S.shop.resetStock(el.dataset.id, reason); toast(t('saved')); refresh();
 });
 acts.archiveItem = (el) => attempt(async () => { const p = S.shop.products.get(el.dataset.id); await S.shop.setProductActive(p.id, !p.active); toast(t('saved')); refresh(); });
 
@@ -104,7 +89,7 @@ export async function partyList(kind) {
   <input class="search" data-chg="partySearch" data-kind="${kind}" value="${esc(pq[kind])}" placeholder="🔍 ${t('name')} / ${t('phone')}">
   <div class="card"><div class="li"><b>${t(kind === 'customer' ? 'receivable' : 'payable')}</b><b class="${kind === 'customer' ? 'warn' : 'bad'}">${money(tot)}</b></div>
   ${list.map((x) => { const b = S.shop.balance(kind, x.id);
-    return `<a class="li link" href="#/${kind}/${x.id}"><span><b>${esc(x.name)}</b><br><small>${esc(x.phone)}</small></span><b class="${b > 0 ? (kind === 'customer' ? 'warn' : 'bad') : b < 0 ? 'good' : ''}">${b < 0 ? `${money(-b)} ${t('advance')}` : money(b)}</b></a>`; }).join('') || `<p class="empty">${t('empty')}</p>`}</div>`;
+    return `<a class="li link" href="#/${kind}/${x.id}"><span><b>${esc(x.name)}</b><br><small>${esc(x.phone)}${x.address ? ' · ' + esc(x.address) : ''}</small></span><b class="${b > 0 ? (kind === 'customer' ? 'warn' : 'bad') : b < 0 ? 'good' : ''}">${b < 0 ? `${money(-b)} ${t('advance')}` : money(b)}</b></a>`; }).join('') || `<p class="empty">${t('empty')}</p>`}</div>`;
 }
 chg.partySearch = (el) => { pq[el.dataset.kind] = el.value; refresh(); };
 
@@ -125,17 +110,26 @@ acts.saveParty = (el) => attempt(async () => {
 export async function partyDetail(kind, id) {
   const x = (kind === 'customer' ? S.shop.customers : S.shop.suppliers).get(id);
   if (!x) return `<p class="empty">${t('not_found')}</p>`;
-  const bal = S.shop.balance(kind, id), st = await S.shop.statement(kind, id);
+  const cust = kind === 'customer', bal = S.shop.balance(kind, id), st = await S.shop.statement(kind, id);
+  const debit = st.filter((l) => l.amount > 0).reduce((a, l) => a + l.amount, 0), credit = -st.filter((l) => l.amount < 0).reduce((a, l) => a + l.amount, 0);
   const kindLabel = { sale: t('k_sale'), payment: t('k_payment'), opening: t('k_opening'), purchase: t('k_purchase'), rental: t('k_rental'), adjustment: t('k_adjust'), reversal: t('k_reversal') };
-  return `<a href="#/${kind}s" class="back">← ${t(kind === 'customer' ? 'customers' : 'suppliers')}</a>
-  <div class="card"><div class="row"><h2 class="grow">${esc(x.name)}</h2>${btn('editParty', '✎', { data: { kind, id } })}</div><p>${esc(x.phone)} ${esc(x.address)}</p>
-    <div class="stat ${bal > 0 ? (kind === 'customer' ? 'warn' : 'bad') : 'good'}"><div class="v">${bal < 0 ? `${money(-bal)} ${t('advance')}` : money(bal)}</div><div class="l">${t(kind === 'customer' ? 'they_owe' : 'you_owe')}${x.creditLimit ? ` · ${t('credit_limit')} ${money(x.creditLimit)}` : ''}</div></div>
-    <div class="row wrap">${btn('partyPay', '💰 ' + t(kind === 'customer' ? 'receive_payment' : 'pay_supplier'), { cls: 'pri', data: { kind, id } })}
-    ${kind === 'customer' && x.phone ? btn('remind', '💬 ' + t('send_reminder'), { data: { id } }) : ''}
-    ${kind === 'supplier' ? `<a class="btn" href="#/purchase?supplier=${id}">📦 ${t('new_purchase')}</a>` : ''}
-    ${btn('shareStatement', '📤 ' + t('share_statement'), { data: { kind, id } })}${isAdmin() ? btn('partyAdjust', '± ' + t('adjust'), { data: { kind, id } }) : ''}</div></div>
-  <div class="card"><h3>${t('statement')}</h3>${table([t('date'), t('type'), t('amount'), t('balance')],
-    st.slice().reverse().map((l) => [fmtDateTime(l.at), esc(kindLabel[l.kind] || l.kind) + (l.no ? ` <small>${esc(l.no)}</small>` : ''), `<span class="${l.amount > 0 ? 'warn' : 'good'}">${l.amount > 0 ? '+' : ''}${money(l.amount)}</span>`, money(l.running)]), { right: [2, 3] })}</div>
+  const sign = bal > 0 ? (cust ? 'warn' : 'bad') : bal < 0 ? 'good' : '';
+  const details = (l) => { const label = esc(kindLabel[l.kind] || l.kind) + (l.no ? ` <small>${esc(l.no)}</small>` : '');
+    const link = cust && l.refId && l.kind === 'sale' ? `<a href="#/sale/${l.refId}">${label}</a>` : label;
+    return link + (l.note && l.note !== l.no ? `<br><small>${esc(l.note)}</small>` : ''); };
+  return `<a href="#/${kind}s" class="back">← ${t(cust ? 'customers' : 'suppliers')}</a>
+  <div class="card profile"><div class="row"><div class="avatar">${esc((x.name || '?')[0].toUpperCase())}</div>
+    <div class="grow"><h2>${esc(x.name)}</h2>
+      <div class="sub">${x.phone ? `📞 <a href="tel:${esc(x.phone)}">${esc(x.phone)}</a>` : `📞 —`}</div><div class="sub">📍 ${esc(x.address || '—')}</div>${x.creditLimit ? `<div class="sub">${t('credit_limit')}: ${money(x.creditLimit)}</div>` : ''}</div>
+    ${btn('editParty', '✎', { cls: 'link', data: { kind, id } })}</div>
+    <div class="stat big-balance ${sign}"><div class="v">${bal < 0 ? `${money(-bal)} ${t('advance')}` : money(bal)}</div><div class="l">${t('account_balance')} · ${t(cust ? 'they_owe' : 'you_owe')}</div></div>
+    <div class="grid stats3"><div class="stat"><div class="v">${money(debit)}</div><div class="l">${t('total_debit')}</div></div><div class="stat"><div class="v good">${money(credit)}</div><div class="l">${t('total_credit')}</div></div><div class="stat"><div class="v ${sign}">${money(bal)}</div><div class="l">${t('balance')}</div></div></div>
+    <div class="row wrap">${btn('partyPay', '💰 ' + t(cust ? 'receive_payment' : 'pay_supplier'), { cls: 'pri', data: { kind, id } })}
+    ${cust && x.phone ? btn('remind', '💬 ' + t('send_reminder'), { data: { id } }) : ''}
+    ${!cust ? `<a class="btn" href="#/purchase?supplier=${id}">📦 ${t('new_purchase')}</a>` : `<a class="btn" href="#/khata">📒 ${t('khata_entry')}</a>`}
+    ${btn('shareStatement', '📤 ' + t('share_statement'), { data: { kind, id } })}${isAdmin() ? btn('partyAdjust', '± ' + t('adjust'), { data: { kind, id } }) : ''}${cust ? btn('deleteKhata', '🗑 ' + t('delete_khata'), { cls: 'danger', data: { id } }) : ''}</div></div>
+  <div class="card"><h3>${t('ledger')}</h3>${table([t('date'), t('details'), t('debit'), t('credit'), t('balance')],
+    st.slice().reverse().map((l) => [fmtDateTime(l.at), details(l), l.amount > 0 ? `<span class="warn">${money(l.amount)}</span>` : '', l.amount < 0 ? `<span class="good">${money(-l.amount)}</span>` : '', `<b>${money(l.running)}</b>`]), { right: [2, 3, 4] })}</div>
   ${kind === 'supplier' ? await supplierPurchases(id) : ''}`;
 }
 async function supplierPurchases(id) {
@@ -143,7 +137,7 @@ async function supplierPurchases(id) {
   return `<div class="card"><h3>${t('purchases')}</h3>${list.map((p) => `<div class="li"><span><b>${esc(p.no)}</b> <small>${fmtDateTime(p.at)} ${p.status !== 'posted' ? `[${p.status}]` : ''}</small><br><small>${p.items.map((i) => esc(i.name)).join(', ')}</small></span>
     <span class="r"><b>${money(p.total)}</b>${p.status === 'posted' ? `<br>${btn('cancelPurchase', t('cancel'), { cls: 'link', data: { id: p.id } })}` : ''}</span></div>`).join('') || `<p class="empty">${t('empty')}</p>`}</div>`;
 }
-acts.cancelPurchase = (el) => attempt(async () => { if (!ask(t('confirm_cancel_bill'))) return; await S.shop.cancelPurchase(el.dataset.id, 'cancelled'); toast(t('saved')); refresh(); });
+acts.cancelPurchase = (el) => attempt(async () => { if (!(await confirmWithPin({ title: t('cancel'), message: t('confirm_cancel_bill') }))) return; await S.shop.cancelPurchase(el.dataset.id, 'cancelled'); toast(t('saved')); refresh(); });
 acts.partyPay = (el) => {
   const { kind, id } = el.dataset;
   openSheet(`<h3>${t(kind === 'customer' ? 'receive_payment' : 'pay_supplier')}</h3>${field('amount', t('amount'), '', { attrs: 'inputmode="decimal"' })}${select('account', t('account'), accountOptions(), 'cash')}${field('note', t('note'))}
@@ -201,9 +195,9 @@ ins.pSearch = (el) => {
 };
 acts.pPick = (el) => {
   const p = S.shop.products.get(el.dataset.id), units = [p.baseUnit, ...p.units.map((u) => u.unit)];
-  openSheet(`<h3>${esc(p.name)}</h3><p class="sub">${t('last_cost')}: ${money(p.lastCost)}/${unitName(p.baseUnit)}</p>
+  openSheet(`<h3>${esc(p.name)}</h3><p class="sub">${t('last_cost')}: ${money(p.costPrice | 0)}/${unitName(p.baseUnit)}</p>
     <div class="row">${field('qty', t('quantity'), '1', { attrs: 'inputmode="decimal"', cls: 'grow' })}${select('unit', t('unit'), units.map((u) => [u, unitName(u)]), p.baseUnit)}</div>
-    ${field('cost', `${t('cost')} / ${t('unit')}`, p.lastCost ? String(p.lastCost / 100) : '', { attrs: 'inputmode="decimal"' })}${btn('pLineSave', t('add_to_cart'), { cls: 'pri big', data: { id: p.id } })}`);
+    ${field('cost', `${t('cost')} / ${t('unit')}`, p.costPrice ? (p.costPrice / 100).toFixed(2) : '', { attrs: 'inputmode="decimal"' })}${btn('pLineSave', t('add_to_cart'), { cls: 'pri big', data: { id: p.id } })}`);
 };
 acts.pLineSave = (el) => attempt(async () => {
   const f = formData(sheetEl()); const qty = parseQty(f.qty), cost = parseRs(f.cost);

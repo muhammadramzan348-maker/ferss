@@ -57,3 +57,23 @@ offline cache is picked up (or Chrome > Site settings > Clear & reset).
    Settings -> Data safety (status, record counts, "Check my data" self-check, "Download backup now"), backup reminder after 7 days.
 Files: `js/gdrive.js`, `js/ui/backup_actions.js`, `js/i18n.js`, `js/core.js`, `js/db.js`, `js/store.js`, `js/app.js`, `js/print.js`,
 `js/ui/ops_screens.js`, `js/ui/main_screens.js`, `js/ui/settings_screen.js`, `js/ui/stock_screens.js`, `js/ui/ctx.js`, `css/app.css`, tests.
+
+---
+# Update: no stock, login + PIN recovery, PIN-protected delete, Recycle Bin, customer profile, professional invoice
+1. **Stock tracking removed.** No stock counts, "0 left"/low-stock warnings, stock reports, negative-stock rules, stock adjust/reset. Quantity only matters on the bill.
+   Profit still works: every item has a *Cost price* (per base unit) that purchases update automatically. Shops with old stock data are migrated once
+   (average cost becomes the cost price). Nothing is deleted from old backups.
+2. **Login:** Username + PIN, "Remember username" (localStorage), "Forgot PIN?" -> Master Admin PIN popup -> set a new PIN. First run creates the admin account
+   and the Master Admin PIN. Old installs: the old Admin/Salesman PINs become users `admin` / `salesman`; Master PIN starts equal to the old admin PIN.
+   Settings -> Users: add/remove users, reset a PIN, change my PIN, change Master PIN. Wrong tries lock the user (30 s, doubling).
+3. **PIN confirmation:** deleting a bill/sale, deleting a customer's khata, deleting permanently from the bin, cancelling a purchase/expense, and user changes
+   all open a Secure Confirmation modal that needs the signed-in user's PIN. Wrong PIN = nothing happens.
+4. **Recycle Bin** (side menu / More, admin): deleted bills and khata wait 30 days, show "days left", can be restored (cash/khata come back) or deleted
+   permanently (PIN). Auto-purge after 30 days at app start and whenever the bin is opened.
+5. **Customer profile:** avatar, name, phone (tap to call), address, account balance, Total Debit / Total Credit / Balance, full ledger
+   (Date | Details | Debit | Credit | Balance) that updates instantly; bills open from the ledger.
+6. **Invoice design** (preview, bill page, PDF, image): centred bold header with address/contact and a subtle bottom border; table
+   *Item Description | Qty | Unit Price | Total*; shaded totals box (Subtotal, Discount, **Grand Total** big/bold, Paid, Balance); thank-you message and a return/exchange line
+   (editable in Settings -> Shop details). One model (`js/invoice_model.js`) feeds both screen and PDF so they always match.
+7. **Finalize Bill** now posts the bill and opens the **Invoice Preview** with two big buttons: **Save / Download** (PDF, or PNG via the small link) and **Share**.
+New: `js/invoice_model.js`, `js/ui/login.js`, `js/ui/pin_modal.js`, `js/ui/bin_screen.js`, `js/ui/invoice_view.js`. Heavily changed: `js/db.js`, `js/auth.js`, `js/print.js`, `js/ui/*`.

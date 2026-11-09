@@ -16,8 +16,8 @@ const t = (k) => dict.en[k] ?? k;
 
 async function shopWith(price = 1500) {
   const shop = await mkShop();
-  const poppy = await shop.saveProduct({ name: 'Plaster of Paris', nameUr: 'Paris Plaster', baseUnit: 'kg', sellUnit: 'kg', units: [{ unit: 'g', num: 1, den: 1000 }], retailPrice: price }, { openingQty: 50000, openingValue: 50000 * 1000 / 1000 * 0.6 | 0 });
-  const bulb = await shop.saveProduct({ name: 'LED Bulb', baseUnit: 'pc', sellUnit: 'pc', retailPrice: 25000 }, { openingQty: 100000, openingValue: 1800000 });
+  const poppy = await shop.saveProduct({ name: 'Plaster of Paris', nameUr: 'Paris Plaster', baseUnit: 'kg', sellUnit: 'kg', units: [{ unit: 'g', num: 1, den: 1000 }], retailPrice: price, costPrice: 600 });
+  const bulb = await shop.saveProduct({ name: 'LED Bulb', baseUnit: 'pc', sellUnit: 'pc', retailPrice: 25000, costPrice: 18000 });
   S.shop = shop; S.cart = null; S.khata = null; S.lang = 'en'; S.lineCtx = null; dom.reset();
   return { shop, poppy, bulb };
 }
@@ -38,10 +38,10 @@ test('Rs 15 per kg: grams and fractions give the exact total (was Rs 5 for 250 g
   assert.equal(qtyForAmount(375, price), 250);              // Rs 3.75 buys 250 g
 });
 
-test('selling 250 g posts Rs 3.75, stock drops 250 g, cost is exact', async () => {
+test('selling 250 g posts Rs 3.75 and the cost is exact', async () => {
   const { shop, poppy } = await shopWith(1500);
   const sale = await shop.postSale({ lines: [{ productId: poppy.id, unit: 'g', qty: 250000 }], payments: [{ account: 'cash', amount: 375 }] });
-  assert.equal(sale.total, 375); assert.equal(sale.lines[0].baseQty, 250); assert.equal(shop.stockOf(poppy.id).qty, 50000 - 250);
+  assert.equal(sale.total, 375); assert.equal(sale.lines[0].baseQty, 250); assert.equal(sale.lines[0].cogs, 150);   // 250 g x Rs 6/kg
   assert.equal(sale.lines[0].priceUnit, 'kg'); assert.equal(shop.accountBalance('cash'), 375);
 });
 
@@ -85,7 +85,7 @@ test('Add item to the cart via the real UI actions (no more "preview is not a fu
   S.cart.pay = { cash: '18.75' };
   await acts.finalize(); await waitToasts();
   const [sale] = await shop.sales();
-  assert.equal(sale.total, 1875); assert.equal(sale.credit, 0); assert.equal(shop.stockOf(poppy.id).qty, 50000 - 250 - 1000);
+  assert.equal(sale.total, 1875); assert.equal(sale.credit, 0);
 });
 
 test('preview never throws: bad lines come back as {error}', async () => {
@@ -133,7 +133,6 @@ test('Khata Entry: customer details + items with notes + live total, saved as ud
   assert.equal(shop.balance('customer', cust.id), 40375);
   const [sale] = await shop.sales();
   assert.deepEqual(sale.lines.map((l) => l.note), ['2 bags', 'Philips 12W']);
-  assert.equal(shop.stockOf(bulb.id).qty, 100000 - 2000);
   assert.ok(JSON.stringify(receiptRows(shop, sale, (k) => k, 'en')).includes('Philips 12W'));     // note is on the receipt
   assert.equal(S.khata.lines.length, 0);                                                              // screen reset
 });

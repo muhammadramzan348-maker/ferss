@@ -1,15 +1,19 @@
 // Browser-only output: thermal print, PDF + WhatsApp share, A4 print. Failures never affect saved bills.
-import { receiptRows, renderRows, renderA4Pages, escposRaster, rawbtUrl, printViaBluetooth, printCanvasInBrowser,
+import { receiptRows, invoiceRows, renderRows, renderA4Pages, escposRaster, rawbtUrl, printViaBluetooth, printCanvasInBrowser,
   makePdfFromJpegs, shareFile, canvasToBlob, paperPx } from '../print.js';
 import { waLink } from '../core.js';
 import { S, t, toast, attempt } from './ctx.js';
 
-const mkCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const defaultCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+/** replaceable in tests (there is no real canvas in Node) */
+export const outputEnv = { createCanvas: defaultCanvas, toBlob: (...a) => canvasToBlob(...a) };
+const mkCanvas = (w, h) => outputEnv.createCanvas(w, h);
 export const printMethod = () => localStorage.getItem('printMethod') || 'rawbt';
 let logoImg = null;
 /** The shop logo as an <img> for the canvas receipts (null if it cannot be loaded - printing still works). */
 export function loadLogo() {
   if (logoImg) return Promise.resolve(logoImg);
+  if (typeof Image === 'undefined') return Promise.resolve(null);
   return new Promise((res) => { const i = new Image(); i.onload = () => { logoImg = i; res(i); }; i.onerror = () => res(null); i.src = 'img/logo-512.png'; });
 }
 /** Share the contact banner (shop card) through the phone's share sheet, e.g. WhatsApp. */
@@ -36,7 +40,7 @@ export function thermalPrint(sale) {
 }
 export function a4Print(sale) {
   return attempt(async () => {
-    const pages = renderA4Pages(mkCanvas, receiptRows(S.shop, sale, t, S.lang, { logo: await loadLogo(), logoFrac: 0.22 }), S.lang);
+    const pages = await invoicePages(sale);
     const w = window.open('', '_blank');
     w.document.write(`<html><head><style>@page{size:A4;margin:0}body{margin:0}img{width:100%;display:block;page-break-after:always}</style></head><body>${pages.map((p) => `<img src="${p.toDataURL('image/jpeg', 0.92)}">`).join('')}<script>onload=()=>setTimeout(()=>print(),300)</script></body></html>`);
     w.document.close();
@@ -45,9 +49,9 @@ export function a4Print(sale) {
 /** One tap: build a PDF of the bill and open the phone's share sheet (choose WhatsApp). */
 export function sharePdf(sale) {
   return attempt(async () => {
-    const pages = renderA4Pages(mkCanvas, receiptRows(S.shop, sale, t, S.lang, { logo: await loadLogo(), logoFrac: 0.22 }), S.lang);
+    const pages = await invoicePages(sale);
     const jp = [];
-    for (const c of pages) jp.push({ jpeg: new Uint8Array(await (await canvasToBlob(c)).arrayBuffer()), w: c.width, h: c.height });
+    for (const c of pages) jp.push({ jpeg: new Uint8Array(await (await outputEnv.toBlob(c)).arrayBuffer()), w: c.width, h: c.height });
     const blob = new Blob([makePdfFromJpegs(jp)], { type: 'application/pdf' });
     const cust = sale.customerId ? S.shop.customers.get(sale.customerId) : null;
     const res = await shareFile({ blob, filename: `${sale.no}.pdf`, text: S.shop.invoiceText(sale, S.lang), phone: cust?.phone || '' });
@@ -58,3 +62,27 @@ export const whatsappText = (sale) => {
   const cust = sale.customerId ? S.shop.customers.get(sale.customerId) : null;
   window.open(waLink(cust?.phone || '', S.shop.invoiceText(sale, S.lang)), '_blank');
 };
+
+/** the professional invoice, drawn page by page (A4) */
+export async function invoicePages(sale) {
+  return renderA4Pages(mkCanvas, invoiceRows(S.shop, sale, t, S.lang, { logo: await loadLogo(), logoFrac: 0.16 }), S.lang);
+}
+export function saveBlob(blob, name) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+/** "Save / Download": a PDF (default) or PNG image(s) of the invoice. */
+export function downloadInvoice(sale, fmt = 'pdf') {
+  return attempt(async () => {
+    const pages = await invoicePages(sale);
+    if (fmt === 'png') {
+      for (let i = 0; i < pages.length; i++) saveBlob(await outputEnv.toBlob(pages[i], 'image/png'), pages.length > 1 ? `${sale.no}-${i + 1}.png` : `${sale.no}.png`);
+    } else {
+      const jp = [];
+      for (const c of pages) jp.push({ jpeg: new Uint8Array(await (await outputEnv.toBlob(c)).arrayBuffer()), w: c.width, h: c.height });
+      saveBlob(new Blob([makePdfFromJpegs(jp)], { type: 'application/pdf' }), `${sale.no}.pdf`);
+    }
+    toast(t('saved'));
+    return fmt;
+  });
+}

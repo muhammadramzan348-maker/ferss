@@ -3,7 +3,7 @@ import { fmtRs, esc, fmtQty, UNITS } from '../core.js';
 export { esc };
 import { dict } from '../i18n.js';
 
-export const S = { shop: null, auth: null, lang: 'en', cart: null, purchase: null, rental: null, khata: null, lineCtx: null, idleMin: 5 };
+export const S = { shop: null, auth: null, user: null, lang: 'en', cart: null, purchase: null, rental: null, khata: null, lineCtx: null, idleMin: 5 };
 /** remember when a backup was last taken (Drive or file) */
 export const markBackup = () => { if (typeof localStorage !== 'undefined') { const n = String(Date.now()); localStorage.setItem('lastBackup', n); localStorage.setItem('lastDriveBackup', n); } };
 /** read a local (per-phone) preference */
@@ -33,7 +33,9 @@ export function openSheet(html, cls = '') {
   document.body.appendChild(el);
   return el.firstElementChild;
 }
-export const closeSheet = () => document.getElementById('sheet')?.remove();
+/** the open modal can register a callback that runs when it is closed (used by the PIN modal) */
+export const sheetHooks = { onClose: null };
+export const closeSheet = () => { const h = sheetHooks.onClose; sheetHooks.onClose = null; document.getElementById('sheet')?.remove(); if (h) h(); };
 export const sheetEl = () => document.querySelector('#sheet .sheet');
 export const refresh = () => window.dispatchEvent(new Event('app:refresh'));
 export const go = (hash) => { if (location.hash === hash) refresh(); else location.hash = hash; };

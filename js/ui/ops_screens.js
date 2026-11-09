@@ -3,6 +3,7 @@ import { S, acts, ins, chg, t, money, can, isAdmin, unitName, field, select, btn
   openSheet, closeSheet, sheetEl, formData, attempt, toast, go, refresh, ask, $, dateInput, parseDateInput } from './ctx.js';
 import { ACCOUNTS } from '../db.js';
 import { waLink } from '../core.js';
+import { confirmWithPin } from './pin_modal.js';
 
 const safeRs = (s) => { try { return s ? parseRs(s) : 0; } catch { return 0; } };
 const DAY = 86400000;
@@ -150,7 +151,7 @@ acts.saveExpense = () => attempt(async () => {
   const f = formData($('#expForm'));
   await S.shop.addExpense({ category: f.custom.trim() || f.category, amount: parseRs(f.amount), account: f.account, note: f.note }); toast(t('saved')); refresh();
 });
-acts.cancelExpense = (el) => attempt(async () => { if (!ask(t('confirm'))) return; await S.shop.cancelExpense(el.dataset.id); refresh(); });
+acts.cancelExpense = (el) => attempt(async () => { if (!(await confirmWithPin({ title: t('cancel'), message: t('confirm') }))) return; await S.shop.cancelExpense(el.dataset.id); refresh(); });
 acts.transferSheet = () => openSheet(`<h3>${t('transfer')}</h3>${select('from', t('from'), accountOptions(), 'cash')}${select('to', t('to'), accountOptions(), 'bank')}${field('amount', t('amount'), '', { attrs: 'inputmode="decimal"' })}${btn('doTransfer', t('save'), { cls: 'pri big' })}`);
 acts.doTransfer = () => attempt(async () => { const f = formData(sheetEl()); await S.shop.transfer({ from: f.from, to: f.to, amount: parseRs(f.amount) }); closeSheet(); refresh(); });
 acts.ownerSheet = () => openSheet(`<h3>${t('owner_money')}</h3>${select('dir', t('type'), [['in', t('owner_in')], ['out', t('owner_out')]])}${select('account', t('account'), accountOptions(), 'cash')}${field('amount', t('amount'), '', { attrs: 'inputmode="decimal"' })}${btn('doOwner', t('save'), { cls: 'pri big' })}`);
@@ -169,8 +170,8 @@ function rangeMs() {
   return [0, Infinity];
 }
 export async function reportsScreen() {
-  const [from, to] = rangeMs(), kinds = ['sales', 'items', 'profit', 'expenses', 'customers', 'suppliers', 'cashbook', 'lowstock', 'stockvalue']
-    .filter((k) => isAdmin() || ['sales', 'customers', 'lowstock'].includes(k));
+  const [from, to] = rangeMs(), kinds = ['sales', 'items', 'profit', 'expenses', 'customers', 'suppliers', 'cashbook']
+    .filter((k) => isAdmin() || ['sales', 'customers'].includes(k));
   const out = await buildReport(rp.kind, from, to);
   lastCsv = out.csv;
   return `<h2>${t('reports')}</h2>
@@ -218,11 +219,6 @@ export async function buildReport(kind, from, to) {
   if (kind === 'cashbook') {
     const rows = await sh.cashBook(rp.account, from, to);
     return mk([t('date'), t('type'), t('in'), t('out'), t('balance')], rows.map((r) => [fmtDateTime(r.at), `${r.kind} ${r.note || ''}`, r.amount > 0 ? mny(r.amount) : '', r.amount < 0 ? mny(-r.amount) : '', mny(r.running)]), [2, 3, 4]);
-  }
-  if (kind === 'lowstock') return mk([t('item'), t('stock'), t('min_stock')], sh.lowStock().map((p) => [p.name, `${fmtQty(sh.stockOf(p.id).qty)} ${unitName(p.baseUnit)}`, `${fmtQty(p.minStock)}`]), [1, 2]);
-  if (kind === 'stockvalue') {
-    const rows = [...sh.products.values()].filter((p) => p.active).map((p) => ({ p, s: sh.stockOf(p.id) })).sort((a, b) => b.s.value - a.s.value);
-    return mk([t('item'), t('stock'), t('avg_cost'), t('stock_value')], [...rows.map(({ p, s }) => [p.name, `${fmtQty(s.qty)} ${unitName(p.baseUnit)}`, mny(sh.avgCost(p.id)), mny(s.value)]), ['TOTAL', '', '', mny(rows.reduce((a, r) => a + r.s.value, 0))]], [1, 2, 3]);
   }
   return mk([], []);
 }

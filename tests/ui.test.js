@@ -20,8 +20,9 @@ test('every translation key used in the code exists in English AND Urdu', () => 
   ['per_day', 'per_hour'].forEach((k) => keys.add(k));
   for (const a of ['cash', 'bank', 'jazzcash', 'easypaisa']) keys.add(`acc_${a}`);
   for (const k of ['Rent', 'Electricity', 'Salaries', 'Tea & Food', 'Transport', 'Repairs', 'Other']) keys.add(`exp_${k}`);
-  for (const k of ['format', 'same', 'wrong', 'locked', 'mismatch', 'role']) keys.add(`pin_${k}`);
-  for (const k of ['sales', 'items', 'profit', 'expenses', 'customers', 'suppliers', 'cashbook', 'lowstock', 'stockvalue']) keys.add(`rep_${k}`);
+  for (const k of ['format', 'same', 'wrong', 'locked', 'mismatch', 'role', 'username', 'exists', 'last_admin', 'nouser']) keys.add(`pin_${k}`);
+  for (const k of ['admin', 'salesman']) keys.add(`role_${k}`);
+  for (const k of ['sales', 'items', 'profit', 'expenses', 'customers', 'suppliers', 'cashbook']) keys.add(`rep_${k}`);
   for (const k of ['day', 'week', 'month']) keys.add(`rp_${k}`);
   for (const k of ['active', 'items', 'history']) keys.add(`rtab_${k}`);
   for (const k of ['bills', 'estimates', 'cancelled']) keys.add(`tab_${k}`);
@@ -33,7 +34,7 @@ test('every translation key used in the code exists in English AND Urdu', () => 
 
 test('every data-act / data-in / data-chg used in HTML has a handler', async () => {
   const { acts, ins, chg } = await import('../js/ui/ctx.js');
-  await import('../js/ui/main_screens.js'); await import('../js/ui/khata_screen.js'); await import('../js/ui/backup_actions.js'); await import('../js/ui/stock_screens.js'); await import('../js/ui/ops_screens.js'); await import('../js/ui/settings_screen.js');
+  await import('../js/ui/main_screens.js'); await import('../js/ui/khata_screen.js'); await import('../js/ui/bin_screen.js'); await import('../js/ui/login.js'); await import('../js/ui/backup_actions.js'); await import('../js/ui/stock_screens.js'); await import('../js/ui/ops_screens.js'); await import('../js/ui/settings_screen.js');
   const data = (attr) => new Set([...src.matchAll(new RegExp(`data-${attr}=\\\\?"([A-Za-z]+)\\\\?"`, 'g'))].map((m) => m[1]));
   const btns = new Set([...src.matchAll(/\bbtn\('([A-Za-z]+)'/g)].map((m) => m[1]));
   const used = (attr) => (attr === 'act' ? new Set([...data('act'), ...btns]) : data(attr));
@@ -47,7 +48,7 @@ test('every data-act / data-in / data-chg used in HTML has a handler', async () 
 
 async function ready(role = 'admin') {
   const shop = await mkShop(); const ids = await seed(shop);
-  S.shop = shop; S.auth = new Auth(shop.store, { iterations: 1000 });
+  S.shop = shop; S.auth = new Auth(shop.store, { iterations: 1000 }); S.user = { username: 'owner', role: role };
   S.cart = null; S.purchase = null; S.khata = null; S.lang = 'en';
   await shop.postSale({ customerId: ids.ali.id, lines: [{ productId: ids.paris.id, amount: 1500 }, { productId: ids.bulb.id, qty: 2000 }], payments: [{ account: 'cash', amount: 20000 }] });
   await shop.saveEstimate({ lines: [{ productId: ids.wire.id, unit: 'ft', qty: 10000 }] });
@@ -79,14 +80,14 @@ for (const lang of ['en', 'ur']) {
 
 test('every report type builds for admin; salesman gets no cost/profit screens', async () => {
   await ready();
-  for (const kind of ['sales', 'items', 'profit', 'expenses', 'customers', 'suppliers', 'cashbook', 'lowstock', 'stockvalue']) {
+  for (const kind of ['sales', 'items', 'profit', 'expenses', 'customers', 'suppliers', 'cashbook']) {
     const r = await O.buildReport(kind, 0, Infinity); assert.ok(r.html.includes('<table') && r.csv.length >= 1, kind);
   }
   S.shop.role = 'salesman';
   const dash = await M.dashboard(); assert.ok(!dash.includes('Today&#39;s profit') && !dash.includes('To pay'));
   const rep = await O.reportsScreen(); assert.ok(!rep.includes('Profit &amp; loss') && !rep.includes('Item profit'));
   const item = await K.itemForm([...S.shop.products.keys()][0]); assert.ok(!item.includes('Average cost')); assert.ok(item.includes('disabled'));
-  const set = await settingsScreen(); assert.ok(!set.includes('Admin PIN'));
+  const set = await settingsScreen(); assert.ok(!set.includes('Master Admin PIN') && !set.includes('data-act="addUser"') && set.includes('data-act="changeMyPin"'));
   await assert.rejects(O.buildReport('items', 0, Infinity));
 });
 

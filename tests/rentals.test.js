@@ -183,7 +183,7 @@ test('data survives closing and reopening the app (rentals, khata, stock, cash)'
   clock.t = pkt(11, 5, 12); await s1.returnRental(r.id);
   const s2 = new Shop({ store, now: () => clock.t }); await s2.init();            // "restart"
   assert.equal(s2.rentals.get(r.id).status, 'returned'); assert.equal(s2.rentals.get(r.id).charges, 20000);
-  assert.equal(s2.balance('customer', ali2.id), 1000); assert.equal(s2.stockOf(paris.id).qty, 9750); assert.equal(s2.accountBalance('cash'), 20000 + 500 - 0);
+  assert.equal(s2.balance('customer', ali2.id), 1000); assert.equal(s2.accountBalance('cash'), 20000 + 500 - 0);
   assert.equal((await s2.selfCheck()).ok, true); void shop; void rehri; void ali;
 });
 
@@ -192,11 +192,11 @@ test('selfCheck passes on healthy data and catches damaged data', async () => {
   const sale = await shop.postSale({ customerId: ali.id, lines: [{ productId: paris.id, amount: 1500 }], payments: [{ account: 'cash', amount: 1000 }] });
   const ok = await shop.selfCheck(); assert.equal(ok.ok, true); assert.deepEqual(ok.issues, []); assert.equal(ok.counts.bills, 1);
   await shop.store.batch([{ col: 'sales', obj: { ...(await shop.store.get('sales', sale.id)), total: 1501 } }]);           // someone edits a bill
-  const mv = (await shop.store.all('movements'))[0];
-  await shop.store.batch([{ col: 'movements', obj: { ...mv, qty: mv.qty + 5 } }]);                                        // and a stock row
+  const row = (await shop.store.all('ledger'))[0];
+  await shop.store.batch([{ col: 'ledger', obj: { ...row, amount: row.amount + 5 } }]);                                    // and a khata row
   const bad = await shop.selfCheck();
   assert.equal(bad.ok, false);
-  assert.ok(bad.issues.some((i) => /total does not match/.test(i))); assert.ok(bad.issues.some((i) => /does not match its movements/.test(i)));
+  assert.ok(bad.issues.some((i) => /total does not match/.test(i))); assert.ok(bad.issues.some((i) => /Khata balance mismatch/.test(i)));
 });
 
 test('IndexedDB writes ask the browser for strict durability and are atomic', async () => {
