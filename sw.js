@@ -1,5 +1,5 @@
 // Generated into ../sw.js by tools/gen_sw.py (do not edit sw.js by hand).
-const VERSION = 'ramzan-d8c22443e0';
+const VERSION = 'ramzan-2d5687fb49';
 const FILES = [
  "./",
  "./index.html",

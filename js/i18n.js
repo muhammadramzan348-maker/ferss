@@ -146,7 +146,7 @@ const ROWS = [
   ['estimate_saved', 'Estimate saved', 'Estimate save ho gaya'],
   ['thermal_print', 'Print receipt', 'Receipt print karein'],
   ['send_pdf_whatsapp', 'Send PDF on WhatsApp', 'WhatsApp par PDF bhejein'],
-  ['print_a4', 'Print A4', 'A4 print'],
+  ['print_a4', 'Print A4', 'A4 print'], ['print_receipt', 'Print receipt (80 mm)', 'Receipt print (80 mm)'],
   ['send_text_whatsapp', 'Send text on WhatsApp', 'WhatsApp par text bhejein'],
   ['print', 'Print', 'Print'],
   ['printed', 'Sent to printer', 'Printer ko bhej diya'],

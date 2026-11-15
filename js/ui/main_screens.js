@@ -1,8 +1,8 @@
 import { esc, fmtQty, fmtDateTime, parseRs, parseQtyLoose, qtyForAmount, listPrice, lineGross, toBase, pktDayStart } from '../core.js';
 import { S, acts, ins, chg, t, money, can, isAdmin, pname, unitName, qtyText, field, select, btn, table, accountOptions,
   customerOptions, openSheet, closeSheet, sheetEl, formData, attempt, toast, go, refresh, ask, lp, $ } from './ctx.js';
-import { thermalPrint, sharePdf, a4Print, whatsappText, shareShopCard } from './output.js';
-import { invoiceHtml, invoiceButtons, openInvoicePreview } from './invoice_view.js';
+import { thermalPrint, sharePdf, whatsappText, shareShopCard } from './output.js';
+import { invoiceHtml, invoiceButtons, openInvoicePreview, printInvoiceHtml } from './invoice_view.js';
 import { ShopError, ACCOUNTS } from '../db.js';
 
 // ================= DASHBOARD =================
@@ -204,7 +204,7 @@ export function billDone(sale) { return openInvoicePreview(sale); }
 const saleOf = (el) => S.shop.store.get('sales', el.dataset.id);
 acts.doThermal = async (el) => thermalPrint(await saleOf(el));
 acts.doPdf = async (el) => sharePdf(await saleOf(el));
-acts.doA4 = async (el) => a4Print(await saleOf(el));
+acts.doA4 = async (el) => printInvoiceHtml(await saleOf(el));
 acts.doWaText = async (el) => whatsappText(await saleOf(el));
 acts.closeSheet = () => closeSheet();
 

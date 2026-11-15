@@ -77,3 +77,13 @@ Files: `js/gdrive.js`, `js/ui/backup_actions.js`, `js/i18n.js`, `js/core.js`, `j
    (editable in Settings -> Shop details). One model (`js/invoice_model.js`) feeds both screen and PDF so they always match.
 7. **Finalize Bill** now posts the bill and opens the **Invoice Preview** with two big buttons: **Save / Download** (PDF, or PNG via the small link) and **Share**.
 New: `js/invoice_model.js`, `js/ui/login.js`, `js/ui/pin_modal.js`, `js/ui/bin_screen.js`, `js/ui/invoice_view.js`. Heavily changed: `js/db.js`, `js/auth.js`, `js/print.js`, `js/ui/*`.
+
+---
+# Update: compact 80 mm receipt
+- The bill (Finalize preview, bill page, Save/Download PDF + PNG, share, print) is now a standard **80 mm thermal receipt**: fixed **302 px** wide
+  (`.inv` in `css/app.css`), 12 px clean typography, compact header/table/totals box. A 58 mm roll (Settings -> Receipt paper width) uses 219 px.
+- The preview popup is a narrow sheet (`.sheet.preview`) so the receipt fits exactly; it is white paper in both light and dark mode.
+- PDF is an 80 mm wide page that is only as tall as the bill (no A4); PNG/thermal image are 576 px wide (80 mm print dots).
+- "Print" now prints the receipt itself with `@page{size:80mm auto;margin:0}` (works with any printer installed on the phone/PC). The old A4 print button is gone.
+- Address is **Noor E Wali, Rahim Yar Khan** (old spelling is corrected automatically unless you typed your own address in Settings).
+Changed: `css/app.css`, `js/print.js`, `js/ui/output.js`, `js/ui/invoice_view.js`, `js/ui/main_screens.js`, `js/db.js`, `js/i18n.js`, `tests/receipt.test.js`.

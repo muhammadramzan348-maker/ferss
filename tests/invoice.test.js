@@ -40,11 +40,11 @@ test('invoice drawing: centred bold header with bottom border, shaded table head
   const { shop, sale } = await bill();
   const rows = invoiceRows(shop, sale, T('en'), 'en', { logo: { width: 512, height: 512 } });
   assert.equal(rows[0].t, 'image');
-  const head = rows.filter((r) => r.t === 'center').slice(0, 3); assert.equal(head[0].text, 'RAMZAN ELECTRIC STORE & HARDWARE'); assert.equal(head[0].bold, true); assert.ok(head[0].size >= 1.8);
-  assert.match(head[1].text, /Rahim Yar Khan/); assert.match(head[2].text, /03006703028/);
+  const head = rows.filter((r) => r.t === 'center').slice(0, 3); assert.equal(head[0].text, 'RAMZAN ELECTRIC STORE & HARDWARE'); assert.equal(head[0].bold, true); assert.ok(head[0].size >= 1.2 && head[0].size <= 1.5);                       // compact, not poster-sized
+  assert.equal(head[1].text, 'Noor E Wali, Rahim Yar Khan'); assert.match(head[2].text, /03006703028/);
   assert.ok(rows.findIndex((r) => r.t === 'rule') > rows.findIndex((r) => r.text === head[2].text));        // subtle border UNDER the header block
   const th = rows.find((r) => r.t === 'thead'); assert.deepEqual(th.cells, ['Item Description', 'Qty', 'Unit Price', 'Total']);
-  assert.deepEqual(th.cols.map((c) => Math.round(c * 100)), [46, 16, 19, 19]);
+  assert.deepEqual(th.cols.map((c) => Math.round(c * 100)), [42, 18, 20, 20]);
   assert.equal(rows.filter((r) => r.t === 'trow').length, 2); assert.ok(rows.find((r) => r.t === 'trow').cells[0].includes('» fine, 2 bags'));
   const box = rows.find((r) => r.t === 'box'), grand = box.rows.find((r) => r.l === 'Grand Total'); assert.ok(grand.big && grand.bold && grand.hl);
   assert.ok(box.rows.findIndex((r) => r.l === 'Grand Total') > box.rows.findIndex((r) => r.l === 'Subtotal'));
@@ -52,7 +52,7 @@ test('invoice drawing: centred bold header with bottom border, shaded table head
   const lay = layoutRows((f, t) => t.length * 11, rows, 1240, { base: 30, pad: 70 });
   const rects = lay.ops.filter((o) => o.k === 'rect'), lines = lay.ops.filter((o) => o.k === 'line');
   assert.ok(rects.length >= 3);                                                                           // header shading + totals box + grand-total band
-  assert.ok(lines.some((o) => o.w === 2 && o.color === '#8fa0b4'));                                       // header bottom border
+  assert.ok(lines.some((o) => o.w === 1 && o.color === '#8fa0b4'));                                       // header bottom border
   const grandText = lay.ops.find((o) => o.k === 'text' && o.text === 'Grand Total'), subText = lay.ops.find((o) => o.k === 'text' && o.text === 'Subtotal');
   assert.ok(/bold/.test(grandText.f) && !/bold/.test(subText.f)); const px = (f) => Number(/(\d+)px/.exec(f)[1]); assert.ok(px(grandText.f) > px(subText.f));          // grand total is bigger
   // paints with a fake canvas, including pagination
@@ -67,7 +67,7 @@ test('on-screen invoice shows the same design (English and Roman Urdu)', async (
   const { sale } = await bill('en');
   const h = invoiceHtml(sale);
   for (const w of ['class="inv-head"', '<h1>RAMZAN ELECTRIC STORE &amp; HARDWARE</h1>', '<th class="">Item Description</th>', '<th class="r">Qty</th>', '<th class="r">Unit Price</th>', '<th class="r">Total</th>',
-    'class="inv-totals"', 'class="grand', 'Grand Total', 'Rs. 500', 'class="thanks">Thank you for your business!', 'class="policy"', '» fine, 2 bags', 'Noor-e-Wali']) assert.ok(h.includes(w), w);
+    'class="inv-totals"', 'class="grand', 'Grand Total', 'Rs. 500', 'class="thanks">Thank you for your business!', 'class="policy"', '» fine, 2 bags', 'Noor E Wali, Rahim Yar Khan', '<colgroup>']) assert.ok(h.includes(w), w);
   S.lang = 'ur'; const r = invoiceHtml(sale); for (const w of ['Item ki Tafseel', 'Kul Raqam', 'Aap ke karobar ka bohat shukriya', '7 din ke andar']) assert.ok(r.includes(w), w);
   const css = (await import('node:fs')).readFileSync('css/app.css', 'utf8');
   for (const sel of ['.inv-head{', '.inv-table th{background', '.inv-totals{', '.inv-totals .grand{', '.inv-foot']) assert.ok(css.includes(sel), sel);
@@ -105,7 +105,9 @@ test('SAVE / DOWNLOAD gives a real PDF (or PNG image) named after the invoice', 
   await downloadInvoice(sale, 'pdf');
   assert.equal(env.downloads.length, 1); assert.equal(env.downloads[0].name, `${sale.no}.pdf`);
   assert.equal(env.blobs[0].type, 'application/pdf');
-  const bytes = Buffer.from(await env.blobs[0].arrayBuffer()).toString('latin1'); assert.ok(bytes.startsWith('%PDF-1.4') && bytes.trimEnd().endsWith('%%EOF') && /\/Count [1-9]/.test(bytes));
+  const bytes = Buffer.from(await env.blobs[0].arrayBuffer()).toString('latin1'); assert.ok(bytes.startsWith('%PDF-1.4') && bytes.trimEnd().endsWith('%%EOF') && /\/Count 1/.test(bytes));
+  assert.match(bytes, /\/MediaBox \[0 0 226\.77 /);                                                       // page is 80 mm wide (a receipt), not A4
+  assert.ok(!bytes.includes('595.28'));
   await downloadInvoice(sale, 'png'); const png = env.downloads.at(-1); assert.match(png.name, new RegExp(`^${sale.no}(-1)?\\.png$`)); assert.equal(env.blobs.at(-1).type, 'image/png');
   assert.ok(dom.toasts.some((x) => /Saved/.test(x.text)));
 });

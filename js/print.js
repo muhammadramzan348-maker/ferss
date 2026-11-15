@@ -42,22 +42,22 @@ export function receiptRows(shop, sale, L, lang = 'en', { logo = null, logoFrac 
   return rows;
 }
 
-/** Professional invoice (A4 PDF / PNG / print): centred bold header with a subtle bottom border, item table, shaded totals box, thank-you + policy. */
-export function invoiceRows(shop, sale, L, lang = 'en', { logo = null, logoFrac = 0.16 } = {}) {
-  const m = invoiceModel(shop, sale, L), cols = [0.46, 0.16, 0.19, 0.19], aligns = ['left', 'right', 'right', 'right'];
+/** The invoice as a compact 80 mm thermal receipt (used for the PDF / PNG / thermal print): header + bottom border, item table, shaded totals box, thank-you + policy. */
+export function invoiceRows(shop, sale, L, lang = 'en', { logo = null, logoFrac = 0.14 } = {}) {
+  const m = invoiceModel(shop, sale, L), cols = [0.42, 0.18, 0.2, 0.2], aligns = ['left', 'right', 'right', 'right'];
   const rows = [];
   if (logo) rows.push({ t: 'image', img: logo, frac: logoFrac });
-  rows.push({ t: 'center', text: m.shop.name, size: 1.9, bold: true });
-  if (m.shop.address) rows.push({ t: 'center', text: m.shop.address, size: 0.9 });
-  if (m.shop.phone) rows.push({ t: 'center', text: `${L('phone')}: ${m.shop.phone}`, size: 0.9 });
-  rows.push({ t: 'rule', color: '#8fa0b4', w: 2 }, { t: 'space', h: 10 });
-  rows.push({ t: 'lr', l: `${m.title} #${m.no}`, r: m.date, bold: true });
-  if (m.customer) rows.push({ t: 'lr', l: `${L('customer')}: ${m.customer.name}`, r: m.customer.phone });
+  rows.push({ t: 'center', text: m.shop.name, size: 1.3, bold: true });
+  if (m.shop.address) rows.push({ t: 'center', text: m.shop.address, size: 0.8 });
+  if (m.shop.phone) rows.push({ t: 'center', text: `${L('phone')}: ${m.shop.phone}`, size: 0.8 });
+  rows.push({ t: 'rule', color: '#8fa0b4', w: 1 }, { t: 'space', h: 4 });
+  rows.push({ t: 'lr', l: `${m.title} #${m.no}`, r: m.date, bold: true, size: 0.8 });
+  if (m.customer) rows.push({ t: 'lr', l: `${L('customer')}: ${m.customer.name}`, r: m.customer.phone, size: 0.8 });
   if (m.cancelled) rows.push({ t: 'center', text: '*** CANCELLED ***', bold: true });
-  rows.push({ t: 'space', h: 8 }, { t: 'thead', cols, aligns, cells: m.heads });
-  for (const l of m.lines) rows.push({ t: 'trow', cols, aligns, noteSmall: true, cells: [l.note ? `${l.desc}\n» ${l.note}` : l.desc, l.qty, l.price, l.total] });
-  rows.push({ t: 'space', h: 12 }, { t: 'box', frac: 0.56, rows: m.totals.map((x) => ({ l: x.label, r: x.value, bold: x.bold, big: x.big, hl: x.hl })) });
-  rows.push({ t: 'space', h: 16 }, { t: 'rule' }, { t: 'center', text: m.thanks, size: 1.15, bold: true }, { t: 'center', text: m.policy, size: 0.85 }, { t: 'space', h: 24 });
+  rows.push({ t: 'space', h: 4 }, { t: 'thead', cols, aligns, size: 0.78, cells: m.heads });
+  for (const l of m.lines) rows.push({ t: 'trow', cols, aligns, size: 0.85, noteSmall: true, cells: [l.note ? `${l.desc}\n» ${l.note}` : l.desc, l.qty, l.price, l.total] });
+  rows.push({ t: 'space', h: 6 }, { t: 'box', frac: 1, rows: m.totals.map((x) => ({ l: x.label, r: x.value, bold: x.bold, big: x.big, hl: x.hl })) });
+  rows.push({ t: 'space', h: 4 }, { t: 'rule', color: '#8fa0b4' }, { t: 'center', text: m.thanks, size: 0.95, bold: true }, { t: 'center', text: m.policy, size: 0.72 }, { t: 'space', h: 16 });
   return rows;
 }
 
@@ -96,13 +96,13 @@ export function layoutRows(measure, rows, W, { base = 22, pad = 10, lang = 'en' 
       y += h;
     }
     else if (r.t === 'box') {                                              // shaded totals box; the grand-total row is bigger and bold
-      const w = Math.round(inner * (r.frac || 1)), x0 = W - pad - w, hs = r.rows.map((x) => Math.round(base * (x.big ? 1.4 : 1) * 1.5) + 10), total = hs.reduce((a, b) => a + b, 0) + 12;
+      const w = Math.round(inner * (r.frac || 1)), x0 = W - pad - w, hs = r.rows.map((x) => Math.round(base * (x.big ? 1.3 : 0.9) * 1.4) + 6), total = hs.reduce((a, b) => a + b, 0) + 8;
       ops.push({ k: 'rect', x: x0, y, w, h: total, fill: r.fill || '#f0f3f8', stroke: '#c3ccd8' });
-      let yy = y + 6;
+      let yy = y + 4;
       r.rows.forEach((x, i) => {
-        const ff = font({ bold: x.bold, size: x.big ? 1.4 : 1 });
+        const ff = font({ bold: x.bold, size: x.big ? 1.3 : 0.9 });
         if (x.hl) ops.push({ k: 'rect', x: x0 + 2, y: yy, w: w - 4, h: hs[i], fill: '#d9e3f0' });
-        ops.push({ k: 'text', f: ff, text: x.l, x: x0 + 14, y: yy + hs[i] * 0.68, align: 'left' }, { k: 'text', f: ff, text: x.r, x: x0 + w - 14, y: yy + hs[i] * 0.68, align: 'right' });
+        ops.push({ k: 'text', f: ff, text: x.l, x: x0 + 10, y: yy + hs[i] * 0.7, align: 'left' }, { k: 'text', f: ff, text: x.r, x: x0 + w - 10, y: yy + hs[i] * 0.7, align: 'right' });
         yy += hs[i];
       });
       y += total + 8;
@@ -181,8 +181,9 @@ export async function printViaBluetooth(bytes, nav = globalThis.navigator) {
 
 // ---------- PDF (JPEG pages) ----------
 /** pages: [{jpeg: Uint8Array, w, h}] -> PDF bytes (A4, image scaled to page width). */
-export function makePdfFromJpegs(pages) {
+export function makePdfFromJpegs(pages, { widthMm = 0 } = {}) {
   const A4W = 595.28, A4H = 841.89, parts = [], offs = [];
+  const fit = widthMm > 0, FW = +(widthMm * 72 / 25.4).toFixed(2);
   let len = 0;
   const push = (x) => { const u = typeof x === 'string' ? Uint8Array.from(x, (c) => c.charCodeAt(0) & 255) : x; parts.push(u); len += u.length; };
   const obj = (n, body) => { offs[n] = len; push(`${n} 0 obj\n`); push(body); push('\nendobj\n'); };
@@ -192,9 +193,9 @@ export function makePdfFromJpegs(pages) {
   obj(2, `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`);
   pages.forEach((p, i) => {
     const pg = 3 + i * 3, ct = pg + 1, im = pg + 2;
-    const sc = A4W / p.w, dh = Math.min(p.h * sc, A4H), dw = p.w * (dh / p.h);
-    const content = `q ${dw.toFixed(2)} 0 0 ${dh.toFixed(2)} 0 ${(A4H - dh).toFixed(2)} cm /Im0 Do Q`;
-    obj(pg, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${A4W} ${A4H}] /Resources << /XObject << /Im0 ${im} 0 R >> >> /Contents ${ct} 0 R >>`);
+    const sc = A4W / p.w, dh = fit ? +(FW * p.h / p.w).toFixed(2) : Math.min(p.h * sc, A4H), dw = fit ? FW : p.w * (dh / p.h), PW = fit ? FW : A4W, PH = fit ? dh : A4H;
+    const content = `q ${dw.toFixed(2)} 0 0 ${dh.toFixed(2)} 0 ${(PH - dh).toFixed(2)} cm /Im0 Do Q`;
+    obj(pg, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PW} ${PH}] /Resources << /XObject << /Im0 ${im} 0 R >> >> /Contents ${ct} 0 R >>`);
     obj(ct, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
     offs[im] = len; push(`${im} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${p.w} /Height ${p.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${p.jpeg.length} >>\nstream\n`);
     push(p.jpeg); push('\nendstream\nendobj\n');

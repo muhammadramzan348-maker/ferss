@@ -6,12 +6,12 @@ import { downloadInvoice, sharePdf } from './output.js';
 
 export function invoiceHtml(sale) {
   const m = invoiceModel(S.shop, sale, t);
-  return `<div class="inv" id="invoicePaper">
+  return `<div class="inv${S.shop.cfg.receiptWidth === '58' ? ' w58' : ''}" id="invoicePaper">
     <header class="inv-head"><img class="inv-logo" src="img/logo-256.png" alt=""><h1>${esc(m.shop.name)}</h1>${m.shop.address ? `<p>${esc(m.shop.address)}</p>` : ''}${m.shop.phone ? `<p>${t('phone')}: ${esc(m.shop.phone)}</p>` : ''}</header>
     <div class="inv-meta"><b>${esc(m.title)} #${esc(m.no)}</b><span>${esc(m.date)}</span></div>
     ${m.customer ? `<div class="inv-meta"><span>${t('customer')}: <b>${esc(m.customer.name)}</b></span><span>${esc(m.customer.phone)}</span></div>` : ''}
     ${m.cancelled ? '<p class="inv-cancel">CANCELLED</p>' : ''}
-    <table class="inv-table"><thead><tr>${m.heads.map((h, i) => `<th class="${i ? 'r' : ''}">${esc(h)}</th>`).join('')}</tr></thead>
+    <table class="inv-table"><colgroup><col style="width:42%"><col style="width:18%"><col style="width:20%"><col style="width:20%"></colgroup><thead><tr>${m.heads.map((h, i) => `<th class="${i ? 'r' : ''}">${esc(h)}</th>`).join('')}</tr></thead>
       <tbody>${m.lines.map((l) => `<tr><td>${esc(l.desc)}${l.note ? `<small>» ${esc(l.note)}</small>` : ''}</td><td class="r">${esc(l.qty)}</td><td class="r">${esc(l.price)}</td><td class="r">${esc(l.total)}</td></tr>`).join('')}</tbody></table>
     <div class="inv-totals">${m.totals.map((x) => `<div class="${x.hl ? 'grand' : ''} ${x.bold ? 'b' : ''}"><span>${esc(x.label)}</span><span>${esc(x.value)}</span></div>`).join('')}</div>
     <footer class="inv-foot"><p class="thanks">${esc(m.thanks)}</p><p class="policy">${esc(m.policy)}</p></footer></div>`;
@@ -21,7 +21,7 @@ export function invoiceHtml(sale) {
 export function invoiceButtons(sale, { close = false } = {}) {
   const d = { id: sale.id };
   return `<div class="inv-actions">${btn('invDownload', '💾 ' + t('save_download'), { cls: 'pri big', data: { ...d, fmt: 'pdf' } })}${btn('invShare', '📤 ' + t('share'), { cls: 'big', data: d })}</div>
-    <div class="row wrap center">${btn('invDownload', '🖼 ' + t('download_image'), { cls: 'link', data: { ...d, fmt: 'png' } })}${btn('doThermal', '🖨 ' + t('thermal_print'), { cls: 'link', data: d })}${btn('doA4', '📄 ' + t('print_a4'), { cls: 'link', data: d })}${btn('doWaText', '💬 ' + t('send_text_whatsapp'), { cls: 'link', data: d })}${close ? btn('closeSheet', t('close'), { cls: 'link' }) : ''}</div>`;
+    <div class="row wrap center">${btn('invDownload', '🖼 ' + t('download_image'), { cls: 'link', data: { ...d, fmt: 'png' } })}${btn('doThermal', '🖨 ' + t('thermal_print'), { cls: 'link', data: d })}${btn('doA4', '🖨 ' + t('print_receipt'), { cls: 'link', data: d })}${btn('doWaText', '💬 ' + t('send_text_whatsapp'), { cls: 'link', data: d })}${close ? btn('closeSheet', t('close'), { cls: 'link' }) : ''}</div>`;
 }
 
 /** shown when "Finalize Bill" (or save estimate) is pressed: the real invoice + Save/Download + Share */
@@ -32,3 +32,14 @@ export function openInvoicePreview(sale) {
 const load = (el) => S.shop.store.get('sales', el.dataset.id);
 acts.invDownload = async (el) => downloadInvoice(await load(el), el.dataset.fmt || 'pdf');
 acts.invShare = async (el) => sharePdf(await load(el));
+
+/** Browser print of the receipt itself: page = 80 mm roll, auto height, no margins (works with any printer installed on the phone/PC). */
+export function printInvoiceHtml(sale) {
+  const w = window.open('', '_blank');
+  if (!w) return;
+  const mm = S.shop.cfg.receiptWidth === '58' ? 58 : 80;
+  let css = 'css/app.css'; try { css = new URL('css/app.css', document.baseURI).href; } catch { /* keep the relative path */ }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(sale.no)}</title><link rel="stylesheet" href="${css}">
+    <style>@page{size:${mm}mm auto;margin:0}html,body{margin:0;background:#fff}.inv{width:${mm}mm;border:0;border-radius:0;padding:2mm 3mm;margin:0}</style></head><body>${invoiceHtml(sale)}<script>onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`);
+  w.document.close();
+}

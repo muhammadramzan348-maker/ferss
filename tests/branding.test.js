@@ -50,7 +50,7 @@ test('receipts: the shop phone/address from the banner are the defaults and prin
   const shop = await mkShop(); const { paris } = await seed(shop);
   const sale = await shop.postSale({ lines: [{ productId: paris.id, amount: 1500 }], payments: [{ account: 'cash', amount: 1500 }] });
   const txt = JSON.stringify(receiptRows(shop, sale, (k) => k, 'en'));
-  assert.match(txt, /Noor-e-Wali, Rahim Yar Khan/); assert.match(txt, /03006703028/);
+  assert.match(txt, /Noor E Wali, Rahim Yar Khan/); assert.match(txt, /03006703028/);
 });
 
 test('logo row: scaled, centred, keeps aspect ratio, painted with drawImage, works on A4 and thermal', async () => {

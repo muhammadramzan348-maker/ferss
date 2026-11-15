@@ -16,7 +16,7 @@ export class ShopError extends Error {
 }
 
 const DEFAULTS = {
-  shopName: 'RAMZAN ELECTRIC STORE & HARDWARE', shopAddress: 'Noor-e-Wali, Rahim Yar Khan', shopPhone: '03006703028', logoOnThermal: false, showBanner: true, returnPolicy: '', footer: 'Thank you for your business',
+  shopName: 'RAMZAN ELECTRIC STORE & HARDWARE', shopAddress: 'Noor E Wali, Rahim Yar Khan', shopPhone: '03006703028', logoOnThermal: false, showBanner: true, returnPolicy: '', footer: 'Thank you for your business',
   receiptWidth: '80', rentalGraceMin: 30, invoicePrefix: 'RES',
   opening_cash: 0, opening_bank: 0, opening_jazzcash: 0, opening_easypaisa: 0,
 };
@@ -46,6 +46,7 @@ export class Shop {
     if (!dev) { dev = { id: 'device', code: 'A', deviceId: this.uid() }; await this.store.batch([{ col: 'meta', obj: dev }]); }
     this.deviceCode = dev.code; this.deviceId = dev.deviceId;
     await this.rebuild();
+    if (/^noor[- ]?e[- ]?wali,?\s*rahim yar khan$/i.test(this.cfg.shopAddress || '') && this.cfg.shopAddress !== DEFAULTS.shopAddress) await this.commit([{ col: 'settings', obj: { id: 'shopAddress', value: DEFAULTS.shopAddress } }]);
     if (!(await this.store.get('meta', 'nostock_v1'))) { await this.migrateNoStock(); await this.store.batch([{ col: 'meta', obj: { id: 'nostock_v1' } }]); }
     if (!this.categories.size) {
       await this.commit(DEFAULT_CATEGORIES.map(([id, nameEn, nameUr]) => ({ col: 'categories', obj: { id, nameEn, nameUr } })));
