@@ -1,25 +1,34 @@
-# RAMZAN ELECTRIC STORE & HARDWARE — Shop PWA
+# NOCTIS (PWA)
 
-Installable, offline-first web app: POS with weight calculator, estimates, udhaar khata + customer profiles, Khata Entry, professional invoices (preview, PDF/PNG download, share),
-WhatsApp reminders, thermal receipts, suppliers & purchases, expenses, date-wise rentals, reports, Username+PIN login with Master PIN recovery, PIN-protected deletes + 30-day Recycle Bin,
-Light/Dark mode, Google Drive backup. No stock tracking.
-English + Roman Urdu (Urdu in English letters). No build step, no dependencies. See `CHANGES.md` for the latest update.
+Ultra-dark, offline-first life manager: Tasks, Namaz (+ Friday Jummah), Finance, Binance/USDT tracker, Gym,
+PIN lock and encrypted backup/restore. No build step, no dependencies.
 
-    node --test        # Node 20+; 115 tests
+## Run locally
+    cd noctis-pwa
+    python3 -m http.server 8000        # then open http://localhost:8000
 
-## Deploy (GitHub Pages)
-1. Put this folder in your repository (e.g. `ramzan_pwa/`).
-2. Add `.github/workflows/deploy-pwa.yml` at the REPOSITORY ROOT (copy from `COPY_THIS_TO_GITHUB/`). If the app files are at the repo root,
-   change `APP_DIR: ramzan_pwa` to `APP_DIR: .`.
-3. Repo → Settings → Pages → Source: **GitHub Actions**. Every push runs the tests and deploys.
-4. Open the site on the phone → Chrome menu → **Install app**.
+## Put it on your phone (needs HTTPS, otherwise it cannot install or encrypt backups)
+Upload this whole folder to any static host, for example:
+* Netlify:  drag & drop the folder at app.netlify.com/drop
+* GitHub Pages / Cloudflare Pages / Vercel: push the folder, enable static hosting
+Then open the https:// link on your phone:
+* Android Chrome: menu -> "Install app"
+* iPhone Safari:  Share -> "Add to Home Screen"
+After the first visit the app works fully offline.
 
-## Backup
-Settings → Google Drive backup (one-time setup in `GOOGLE_DRIVE_SETUP.txt`): ONE file `ramzan_store_backup.json` is overwritten on every backup.
-Or Settings → Data safety → Download backup now (JSON file on the phone). The app also asks the browser for permanent storage.
+## Notes
+* Data lives in the browser's IndexedDB on that device. Clearing site data deletes it, so make backups.
+* Backups are AES-256-GCM (PBKDF2-SHA256, 250k iterations). Android-app backups (XChaCha20) are not readable here.
+* Browsers cannot wake a closed web app: reminders fire while NOCTIS is open (or in a background tab).
+* Urdu/Arabic fonts load from Google Fonts on the first online visit and are then cached for offline use.
+* When you change any file, bump VERSION in sw.js so phones pick up the update.
 
-## Design notes
-* Money = integer paise, quantity = integer thousandths. A line's price is per SELL unit; totals are exact (one rounding).
-* Stock = sum of movements; cost = weighted average; a sale's cost is frozen on the bill. Cancel = reversal rows.
-* Users/PINs are per phone (PBKDF2 hashes). They keep people out of the app; they are not protection against technical access to the phone. Keep the Master Admin PIN safe.
-* Not included: sale returns, tax. Printing: RawBT app (recommended), BLE Web Bluetooth, or browser print.
+## Unlock (PIN, Master PIN, fingerprint)
+* PIN: 4 digits. Fingerprint (WebAuthn platform authenticator) can open the app instead; needs HTTPS and a fingerprint/screen lock on the phone.
+* Master PIN: 6-12 digits, only used on "Forgot PIN?" to choose a NEW PIN. It never erases data.
+* Only if no Master PIN was ever set, "Forgot PIN?" offers a last-resort erase (restore from a backup file afterwards).
+
+## Delete / undo protection
+* Deleting a task, gym exercise, expense, income, Binance entry or category asks first, then moves it to More -> Recycle Bin.
+* Restoring is free. "Delete forever" / "Empty bin" need PIN or fingerprint. Optional switch: ask PIN/fingerprint for every delete.
+* Un-marking a finished prayer (daily, Jummah, Friday sunnah, calendar) needs PIN or fingerprint.

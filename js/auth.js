@@ -1,113 +1,69 @@
-// Users, PIN login, Master Admin PIN recovery. PINs are stored as salted PBKDF2 hashes on THIS device only.
-// NOTE: this keeps casual users out of the app; it cannot stop someone with technical access to the phone's
-// browser storage. Keep a Google Drive backup so data is safe if the phone is lost.
+import { meta, setState, blank, flush } from "./store.js";
+import { sha256Hex, randHex } from "./util.js";
+
 const enc = new TextEncoder();
-const b64 = (u8) => btoa(String.fromCharCode(...u8));
-const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const b64u = {
+  enc: (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""),
+  dec: (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)),
+};
 
-export class AuthError extends Error {
-  constructor(message, code, retryMs = 0) { super(message); this.code = code; this.retryMs = retryMs; }
+/* ---------- PIN (4 digits, unlocks the app) ---------- */
+export const hasPin = () => !!meta.get("pin");
+export async function setPin(pin) { const salt = randHex(16); meta.set("pin", { salt, hash: await sha256Hex(salt + pin) }); }
+export async function verifyPin(pin) { const p = meta.get("pin"); return !!p && (await sha256Hex(p.salt + pin)) === p.hash; }
+
+/* ---------- Master PIN (6-12 digits, only used to set a NEW pin if you forget it; never erases data) ---------- */
+const MASTER_ITER = 150000;
+async function slow(secret, saltHex, iter) {
+  const base = await crypto.subtle.importKey("raw", enc.encode(secret), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: enc.encode(saltHex), iterations: iter, hash: "SHA-256" }, base, 256);
+  return b64u.enc(bits);
 }
-export async function hashPin(pin, saltB64, iterations) {
-  const key = await crypto.subtle.importKey('raw', enc.encode(pin), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: unb64(saltB64), iterations }, key, 256);
-  return b64(new Uint8Array(bits));
+export const hasMaster = () => !!meta.get("master");
+export async function setMaster(m) { const salt = randHex(16); meta.set("master", { salt, iter: MASTER_ITER, hash: await slow(m, salt, MASTER_ITER) }); }
+export async function verifyMaster(m) { const p = meta.get("master"); return !!p && (await slow(m, p.salt, p.iter)) === p.hash; }
+
+/* ---------- Fingerprint / face / screen-lock via WebAuthn (platform authenticator) ---------- */
+export async function bioSupported() {
+  try { return !!(window.PublicKeyCredential && (await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable())); } catch { return false; }
 }
-export const USERNAME_RE = /^[A-Za-z0-9._-]{3,20}$/, PIN_RE = /^\d{4,8}$/;
-const norm = (u) => String(u ?? '').trim().toLowerCase();
-const ROLES = ['admin', 'salesman'];
+export const bioEnabled = () => !!meta.get("bio");
+export const bioDisable = () => meta.del("bio");
+const rnd = (n) => crypto.getRandomValues(new Uint8Array(n));
 
-export class Auth {
-  constructor(store, { now = () => Date.now(), iterations = 120000 } = {}) { this.store = store; this.now = now; this.iter = iterations; }
+export async function bioEnroll() {
+  const cred = await navigator.credentials.create({
+    publicKey: {
+      challenge: rnd(32),
+      rp: { name: "NOCTIS" },
+      user: { id: rnd(16), name: "noctis", displayName: "NOCTIS" },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "discouraged" },
+      attestation: "none", timeout: 60000,
+    },
+  });
+  if (!cred) throw new Error("No credential created");
+  meta.set("bio", { id: b64u.enc(cred.rawId) });
+}
 
-  // ---------- records ----------
-  async _secret(id, extra, pin) {
-    const salt = b64(crypto.getRandomValues(new Uint8Array(16)));
-    return { id, ...extra, salt, iter: this.iter, hash: await hashPin(String(pin), salt, this.iter) };
-  }
-  async _matches(rec, pin) { return !!rec && (await hashPin(String(pin), rec.salt, rec.iter)) === rec.hash; }
-  _checkPin(pin) { if (!PIN_RE.test(String(pin))) throw new AuthError('PIN must be 4 to 8 digits', 'format'); }
+/** Shows the phone's fingerprint prompt. Resolves true only if the OS verified the user. */
+export async function bioAuth() {
+  const saved = meta.get("bio");
+  if (!saved) return false;
+  const challenge = rnd(32);
+  const a = await navigator.credentials.get({
+    publicKey: { challenge, allowCredentials: [{ type: "public-key", id: b64u.dec(saved.id), transports: ["internal"] }], userVerification: "required", timeout: 60000 },
+  });
+  if (!a) return false;
+  const cd = JSON.parse(new TextDecoder().decode(a.response.clientDataJSON));
+  const flags = new Uint8Array(a.response.authenticatorData)[32];
+  return cd.type === "webauthn.get" && cd.challenge === b64u.enc(challenge) && b64u.enc(a.rawId) === saved.id && !!(flags & 0x01) && !!(flags & 0x04); // user present + user VERIFIED
+}
 
-  /** Older versions had one Admin PIN and one Salesman PIN: turn them into users "admin" / "salesman"; Master PIN starts equal to the old admin PIN. */
-  async migrateLegacy() {
-    const a = await this.store.get('meta', 'pin:admin');
-    if (!a) return false;
-    const s = await this.store.get('meta', 'pin:salesman'), ops = [];
-    ops.push({ col: 'meta', obj: { ...a, id: 'user:admin', username: 'admin', role: 'admin' } }, { col: 'meta', del: 'pin:admin' });
-    if (s) ops.push({ col: 'meta', obj: { ...s, id: 'user:salesman', username: 'salesman', role: 'salesman' } }, { col: 'meta', del: 'pin:salesman' });
-    if (!(await this.store.get('meta', 'master'))) ops.push({ col: 'meta', obj: { ...a, id: 'master' } });
-    await this.store.batch(ops);
-    return true;
-  }
-  async listUsers() {
-    await this.migrateLegacy();
-    return (await this.store.all('meta')).filter((m) => m.id.startsWith('user:')).map((m) => ({ username: m.username, role: m.role })).sort((a, b) => a.username.localeCompare(b.username));
-  }
-  async isSetUp() { return (await this.listUsers()).length > 0; }
-
-  // ---------- users ----------
-  async createUser({ username, pin, role = 'salesman' }) {
-    if (!USERNAME_RE.test(String(username ?? '').trim())) throw new AuthError('Username must be 3-20 letters, digits, . _ -', 'username');
-    this._checkPin(pin);
-    if (!ROLES.includes(role)) throw new AuthError('Unknown role', 'role');
-    const id = `user:${norm(username)}`;
-    if (await this.store.get('meta', id)) throw new AuthError('That username is already taken', 'exists');
-    await this.store.batch([{ col: 'meta', obj: await this._secret(id, { username: String(username).trim(), role }, pin) }]);
-  }
-  /** first run: the admin account + the Master Admin PIN used for recovery */
-  async setupFirstAdmin({ username, pin, masterPin }) {
-    if (await this.isSetUp()) throw new AuthError('Already set up', 'exists');
-    this._checkPin(masterPin);
-    await this.createUser({ username, pin, role: 'admin' });
-    await this.setMasterPin(masterPin);
-  }
-  async removeUser(username) {
-    const users = await this.listUsers(), u = users.find((x) => norm(x.username) === norm(username));
-    if (!u) throw new AuthError('No such user', 'nouser');
-    if (u.role === 'admin' && users.filter((x) => x.role === 'admin').length === 1) throw new AuthError('At least one admin is required', 'last_admin');
-    await this.store.batch([{ col: 'meta', del: `user:${norm(username)}` }]);
-  }
-  async resetPin(username, newPin) {
-    this._checkPin(newPin);
-    const rec = await this.store.get('meta', `user:${norm(username)}`);
-    if (!rec) throw new AuthError('No such user', 'nouser');
-    await this.store.batch([{ col: 'meta', obj: await this._secret(rec.id, { username: rec.username, role: rec.role }, newPin) }, { col: 'meta', del: `lock:user:${norm(username)}` }]);
-  }
-  async changePin(username, oldPin, newPin) {
-    if (!(await this.verifyPin(username, oldPin))) throw new AuthError('Wrong PIN', 'wrong');
-    await this.resetPin(username, newPin);
-  }
-
-  // ---------- lockout: 5 wrong tries -> wait 30s, doubling up to 15 min ----------
-  async _lock(id) { return (await this.store.get('meta', id)) || { id, fails: 0, until: 0 }; }
-  async _guard(id) { const l = await this._lock(id); if (l.until > this.now()) throw new AuthError('Too many attempts. Try again later.', 'locked', l.until - this.now()); return l; }
-  async _fail(l) {
-    l.fails += 1; if (l.fails >= 5) l.until = this.now() + Math.min(15 * 60000, 30000 * 2 ** (l.fails - 5));
-    await this.store.batch([{ col: 'meta', obj: l }]);
-    return l.until > this.now() ? l.until - this.now() : 0;
-  }
-  async _clear(l) { if (l.fails) await this.store.batch([{ col: 'meta', obj: { id: l.id, fails: 0, until: 0 } }]); }
-
-  /** returns { username, role }. Wrong username and wrong PIN look the same. */
-  async login(username, pin) {
-    await this.migrateLegacy();
-    const l = await this._guard(`lock:user:${norm(username)}`), rec = await this.store.get('meta', `user:${norm(username)}`);
-    if (await this._matches(rec, pin)) { await this._clear(l); return { username: rec.username, role: rec.role }; }
-    throw new AuthError('Wrong username or PIN', 'wrong', await this._fail(l));
-  }
-  /** re-check the PIN of a signed-in user before a sensitive action. true / false (throws only while locked out) */
-  async verifyPin(username, pin) {
-    const l = await this._guard(`lock:user:${norm(username)}`), rec = await this.store.get('meta', `user:${norm(username)}`);
-    if (await this._matches(rec, pin)) { await this._clear(l); return true; }
-    await this._fail(l); return false;
-  }
-
-  // ---------- Master Admin PIN ----------
-  async hasMaster() { return !!(await this.store.get('meta', 'master')); }
-  async setMasterPin(pin) { this._checkPin(pin); await this.store.batch([{ col: 'meta', obj: await this._secret('master', {}, pin) }]); }
-  async verifyMaster(pin) {
-    const l = await this._guard('lock:master'), rec = await this.store.get('meta', 'master');
-    if (await this._matches(rec, pin)) { await this._clear(l); return true; }
-    await this._fail(l); return false;
-  }
+/* ---------- last resort when no Master PIN exists: wipe this device ---------- */
+export async function wipeAll() {
+  setState(blank());
+  await flush();
+  for (const k of ["pin", "master", "bio", "lastBackup"]) meta.del(k);
+  try { localStorage.removeItem("noctis_state"); localStorage.removeItem("noctis_fired"); } catch {}
 }
