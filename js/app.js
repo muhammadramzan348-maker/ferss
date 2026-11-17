@@ -1,192 +1,121 @@
-import { $, vibrate } from "./util.js";
-import { load, meta, state } from "./store.js";
-import { icons, pinPad, toast, masterForm, confirmBox } from "./ui.js";
-import { ui, actions, inputs, setRenderer, refresh, lockGuard, withoutLock } from "./core.js";
-import { hasPin, verifyPin, setPin, hasMaster, setMaster, verifyMaster, bioEnabled, bioSupported, bioEnroll, bioAuth, wipeAll } from "./auth.js";
-import { startReminders } from "./notify.js";
-import * as tasks from "./screens/tasks.js";
-import * as namaz from "./screens/namaz.js";
-import * as finance from "./screens/finance.js";
-import * as gym from "./screens/gym.js";
-import * as binance from "./screens/binance.js";
-import * as settings from "./screens/settings.js";
-import { promptMaster } from "./screens/settings.js";
+// Boot, lock screen, router, shell, event delegation, idle lock, theme, service worker.
+import { IdbStore } from './store.js';
+import { Shop } from './db.js';
+import { Auth, AuthError } from './auth.js';
+import { S, acts, ins, chg, t, toast, openSheet, closeSheet, $, isAdmin } from './ui/ctx.js';
+import * as M from './ui/main_screens.js';
+import * as K from './ui/stock_screens.js';
+import * as O from './ui/ops_screens.js';
+import { khataScreen } from './ui/khata_screen.js';
+import { settingsScreen } from './ui/settings_screen.js';
+import { loginHtml } from './ui/login.js';
+import { binScreen } from './ui/bin_screen.js';
+import './ui/pin_modal.js';
+import { esc } from './core.js';
+import { applyTheme, getTheme, toggleTheme, browserEnv } from './theme.js';
 
-const TABS = [
-  ["tasks", "Tasks", icons.tasks, tasks],
-  ["namaz", "Namaz", icons.mosque, namaz],
-  ["finance", "Finance", icons.wallet, finance],
-  ["gym", "Gym", icons.dumbbell, gym],
-  ["settings", "More", (o = {}) => `<svg width="${o.size || 26}" height="${o.size || 26}" viewBox="0 0 32 32" fill="none" stroke="${o.active === false ? "#71717A" : "#FAFAFA"}" stroke-width="1.8" stroke-linecap="round"><path d="M5 9h22M5 16h22M5 23h22"/><circle cx="11" cy="9" r="2.6" fill="#09090B"/><circle cx="21" cy="16" r="2.6" fill="#09090B"/><circle cx="13" cy="23" r="2.6" fill="#09090B"/></svg>`, settings],
+const root = document.getElementById('app');
+let idleTimer = null;
+
+export const ROUTES = [
+  [/^$/, () => M.dashboard()], [/^sell$/, () => M.pos()], [/^khata$/, () => khataScreen()], [/^sales$/, (m, q) => M.salesList(q)], [/^sale\/(.+)$/, (m) => M.saleDetail(m[1])],
+  [/^items$/, () => K.itemsList()], [/^item\/(.+)$/, (m) => K.itemForm(m[1])],
+  [/^customers$/, () => K.partyList('customer')], [/^customer\/(.+)$/, (m) => K.partyDetail('customer', m[1])],
+  [/^suppliers$/, () => K.partyList('supplier')], [/^supplier\/(.+)$/, (m) => K.partyDetail('supplier', m[1])],
+  [/^purchase$/, (m, q) => K.purchaseScreen(q)], [/^rentals$/, () => O.rentalsScreen()], [/^rental\/new$/, () => O.rentalNew()], [/^rental\/(.+)$/, (m) => O.rentalDetail(m[1])],
+  [/^expenses$/, () => O.expensesScreen()], [/^reports$/, () => O.reportsScreen()], [/^settings$/, () => settingsScreen()], [/^bin$/, () => binScreen()],
 ];
+const ADMIN_ONLY = /^(suppliers|supplier\/|purchase|expenses|bin)/;
 
-let locked = true, remindersOn = false;
-
-function renderNav() {
-  $("#nav").innerHTML = TABS.map(([k, label, ic]) => `<button data-act="tab" data-id="${k}" class="${ui.tab === k && !ui.view ? "on" : ""}" aria-label="${label}">${ic({ size: 26, active: ui.tab === k && !ui.view })}<span>${label}</span></button>`).join("");
-}
-
-function render() {
-  if (locked) return;
-  const scr = $("#screen"), top = scr.scrollTop;
-  const mod = ui.view === "binance" ? binance : ui.tab === "settings" || ui.view === "backup" || ui.view === "bin" ? settings : TABS.find((t) => t[0] === ui.tab)[3];
-  scr.innerHTML = mod.render();
-  renderNav();
-  scr.scrollTop = top;
-}
-setRenderer(render);
-
-/* ---------- global event delegation ---------- */
-Object.assign(actions, {
-  tab: (el) => { ui.view = null; ui.tab = el.dataset.id; $("#screen").scrollTop = 0; render(); },
-  open: (el) => { ui.view = el.dataset.id; $("#screen").scrollTop = 0; render(); },
-  back: () => { ui.view = null; $("#screen").scrollTop = 0; render(); },
-});
-document.addEventListener("click", (e) => {
-  const el = e.target.closest("[data-act]");
-  if (!el) return;
-  const f = actions[el.dataset.act];
-  if (f) { vibrate(8); f(el, e); }
-});
-document.addEventListener("input", (e) => {
-  const el = e.target.closest("[data-in]");
-  if (el && inputs[el.dataset.in]) inputs[el.dataset.in](el, e);
-});
-
-/* ---------- lock screen: fingerprint first, PIN as fallback, Master PIN to recover ---------- */
-const FP = `<svg width="84" height="84" viewBox="0 0 24 24" fill="none" stroke="#06B6D4" stroke-width="1.4" stroke-linecap="round" style="filter:drop-shadow(0 0 8px #06B6D4)"><path d="M3.5 10C4.5 6 8 3.5 12 3.5s7.5 2.5 8.5 6.5"/><path d="M5.5 12.5C5.5 9 8.4 6.5 12 6.5s6.5 2.5 6.5 6c0 2-.2 3.7-.8 5.5"/><path d="M8.5 14.5c0-2 1.5-3.5 3.5-3.5s3.5 1.5 3.5 3.5c0 2-.3 3.6-1 5"/><path d="M12 11v3.5c0 2-.5 3.5-1.5 5"/></svg>`;
-const BRAND = `<div style="text-align:center;margin-bottom:32px"><div class="glow-ic" style="--g:#06B6D4;font-size:38px;color:#06B6D4">☾</div><div class="bold" style="letter-spacing:.5em;margin-top:8px;margin-right:-.5em">NOCTIS</div></div>`;
-const box = () => $("#lock");
-const mount = (html) => { box().innerHTML = BRAND + `<div id="pp" style="width:100%;max-width:360px">${html || ""}</div>`; return box().querySelector("#pp"); };
-const fresh = () => { const old = box().querySelector("#pp"); const n = old.cloneNode(false); old.replaceWith(n); return n; };
-const link = (id, label, cls = "muted") => `<button class="icbtn ${cls}" id="${id}" style="font-size:14px;padding:10px">${label}</button>`;
-
-function showLock() {
-  locked = true;
-  $("#layer").innerHTML = ""; $("#screen").innerHTML = "";
-  $("#app").classList.add("hidden");
-  box().classList.remove("hidden");
-  if (hasPin()) unlockScreen(); else setupWizard();
-}
-
-/* ----- first run: PIN -> Master PIN -> (optional) fingerprint ----- */
-function setupWizard() {
-  let first = "";
-  const stepPin = (n) => {
-    const root = n === 0 ? mount() : fresh();
-    pinPad(root, n === 0
-      ? { title: "Create your PIN", subtitle: "4 digits to protect NOCTIS", onSubmit: async (p) => { first = p; stepPin(1); return true; } }
-      : { title: "Confirm your PIN", subtitle: "Enter it once more", onSubmit: async (p) => { if (p !== first) return false; await setPin(p); stepMaster(); return true; } });
-  };
-  const stepMaster = () => masterForm(fresh(), {
-    title: "Set a Master PIN", sub: "If you forget your PIN, the Master PIN lets you choose a new one. Nothing is ever erased. Write it down somewhere safe.",
-    onSave: async (m) => { await setMaster(m); await stepBio(); },
-  });
-  const stepBio = async () => {
-    if (!(await bioSupported())) return unlock();
-    const root = fresh();
-    root.innerHTML = `<div style="text-align:center">${FP}<div class="bold" style="font-size:22px;margin-top:12px">Unlock with fingerprint?</div><p class="muted sm">Open NOCTIS with your phone's fingerprint instead of typing the PIN. You can turn this off anytime in More.</p>
-      <div class="crimson xs mb8" id="berr" style="min-height:16px"></div><button class="btn primary block" id="bon">👆 Enable fingerprint</button><button class="btn block mt12" id="bskip">Skip for now</button></div>`;
-    root.querySelector("#bskip").onclick = unlock;
-    root.querySelector("#bon").onclick = async () => {
-      try { await withoutLock(() => bioEnroll()); toast("Fingerprint unlock is on"); unlock(); }
-      catch (e) { root.querySelector("#berr").textContent = e && e.name === "NotAllowedError" ? "Cancelled. Try again or skip." : "Could not enable it on this phone."; }
-    };
-  };
-  stepPin(0);
-}
-
-/* ----- normal unlock ----- */
-let fails = 0, coolUntil = 0;
-function unlockScreen() {
-  const useBio = bioEnabled();
-  const root = mount(`<div id="bio" class="${useBio ? "" : "hidden"}" style="text-align:center"><button id="fp" aria-label="Unlock with fingerprint" style="padding:8px">${FP}</button><div class="muted sm mt12" id="bio-st">Touch the fingerprint sensor</div></div><div id="pin" class="${useBio ? "hidden" : ""}"></div>
-    <div class="row" style="justify-content:center;gap:8px;margin-top:20px" id="links">${useBio ? link("usepin", "Use PIN instead") : ""}${link("forgot", "Forgot PIN?")}</div>`);
-  const pinBox = root.querySelector("#pin");
-  const pad = pinPad(pinBox, {
-    title: "Welcome back", subtitle: "Enter your PIN",
-    disabled: () => Date.now() < coolUntil,
-    onSubmit: async (p) => {
-      if (Date.now() < coolUntil) return false;
-      if (await verifyPin(p)) { fails = 0; unlock(); return true; }
-      if (++fails >= 5) { fails = 0; coolUntil = Date.now() + 30000; const t = setInterval(() => { const sec = Math.ceil((coolUntil - Date.now()) / 1000); if (sec <= 0) { clearInterval(t); pad.setSubtitle("Enter your PIN"); } else pad.setSubtitle(`Too many attempts. Wait ${sec}s`); }, 500); }
-      return false;
-    },
-  });
-  const showPin = () => { root.querySelector("#bio").classList.add("hidden"); pinBox.classList.remove("hidden"); const u = root.querySelector("#usepin"); u && u.remove(); };
-  root.querySelector("#forgot").onclick = forgotScreen;
-  if (!useBio) return;
-  root.querySelector("#usepin").onclick = showPin;
-  const st = root.querySelector("#bio-st");
-  let busy = false;
-  const tryBio = async () => {
-    if (busy) return; busy = true; st.textContent = "Touch the fingerprint sensor";
-    try { const ok = await withoutLock(() => bioAuth()); if (ok) return unlock(); st.textContent = "Fingerprint not recognised. Tap the icon to retry or use your PIN."; }
-    catch { st.textContent = "Fingerprint cancelled. Tap the icon to retry or use your PIN."; }
-    finally { busy = false; }
-  };
-  root.querySelector("#fp").onclick = tryBio;
-  // prompt right away, but only while the page is actually visible
-  if (document.hidden) { const h = () => { if (!document.hidden) { document.removeEventListener("visibilitychange", h); if (locked) tryBio(); } }; document.addEventListener("visibilitychange", h); }
-  else tryBio();
-}
-
-/* ----- forgot PIN: Master PIN sets a NEW pin, data is never touched ----- */
-let mFails = 0, mCool = 0, mLevel = 0;
-function forgotScreen() {
-  if (!hasMaster()) return noMasterScreen();
-  const root = mount(`<div class="bold" style="font-size:22px;text-align:center">Reset your PIN</div><p class="muted sm" style="text-align:center;margin:8px 0 16px">Enter your Master PIN to choose a new PIN. Your data stays exactly as it is.</p>
-    <div class="field"><label class="lbl">Master PIN</label><input class="inp" id="mp" type="password" inputmode="numeric" maxlength="12" autocomplete="off"></div>
-    <div class="crimson xs mb8" id="merr" style="min-height:16px"></div><button class="btn primary block" id="mgo">Verify</button><div style="text-align:center;margin-top:8px">${link("mback", "‹ Back")}</div>`);
-  root.querySelector("#mback").onclick = unlockScreen;
-  const err = root.querySelector("#merr"), go = root.querySelector("#mgo");
-  go.onclick = async () => {
-    const wait = Math.ceil((mCool - Date.now()) / 1000);
-    if (wait > 0) return (err.textContent = `Too many attempts. Wait ${wait}s.`);
-    go.disabled = true; err.textContent = "";
-    const ok = await verifyMaster(root.querySelector("#mp").value);
-    go.disabled = false;
-    if (ok) { mFails = 0; mLevel = 0; return newPinFlow(); }
-    vibrate([60, 40, 60]); root.querySelector("#mp").value = "";
-    if (++mFails >= 5) { mFails = 0; mCool = Date.now() + 60000 * 2 ** mLevel++; err.textContent = "Too many wrong attempts. Try again later."; }
-    else err.textContent = `Wrong Master PIN. ${5 - mFails} attempt${5 - mFails === 1 ? "" : "s"} left.`;
-  };
-}
-function newPinFlow() {
-  let first = "";
-  const step = (n) => pinPad(fresh(), n === 0
-    ? { title: "Choose a new PIN", subtitle: "4 digits", onSubmit: async (p) => { first = p; step(1); return true; } }
-    : { title: "Confirm new PIN", subtitle: "Enter it once more", onSubmit: async (p) => { if (p !== first) return false; await setPin(p); fails = 0; coolUntil = 0; toast("New PIN set. Your data is untouched."); unlock(); return true; } });
-  step(0);
-}
-/* old installs that never set a Master PIN: the only way back in is wiping this device */
-function noMasterScreen() {
-  const root = mount(`<div class="bold" style="font-size:22px;text-align:center">No Master PIN was set</div>
-    <p class="muted sm" style="text-align:center;margin:8px 0 16px">Without a Master PIN, a forgotten PIN cannot be reset. As a last resort you can erase NOCTIS on this device and restore your data from a backup file. Try your fingerprint or remember the PIN first.</p>
-    <button class="btn block" id="nback">‹ Back</button><button class="btn danger block mt12" id="nwipe">Erase this device and start over</button>`);
-  root.querySelector("#nback").onclick = unlockScreen;
-  root.querySelector("#nwipe").onclick = async () => {
-    if (!(await confirmBox("Erase everything?", "All NOCTIS data on this device will be permanently deleted. You can restore later only if you have a backup file.", { ok: "Erase", danger: true }))) return;
-    await wipeAll(); toast("Erased. Create a new PIN."); showLock();
-  };
-}
-
-function unlock() {
-  locked = false;
-  $("#lock").classList.add("hidden");
-  $("#lock").innerHTML = "";
-  $("#app").classList.remove("hidden");
-  render();
-  if (!remindersOn) { remindersOn = true; startReminders(); }
-  if (!hasMaster()) setTimeout(() => !locked && promptMaster(), 500); // older installs: ask once for a Master PIN
-}
-window.addEventListener("noctis-lock", () => { if (hasPin()) showLock(); });
-document.addEventListener("visibilitychange", () => { if (document.hidden && !locked && !lockGuard.suspended && hasPin()) showLock(); });
-
-/* ---------- boot ---------- */
-(async function boot() {
-  await load();
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+async function boot() {
+  applyTheme(getTheme(browserEnv()), document);
+  const store = await new IdbStore().open();
+  S.shop = await new Shop({ store }).init();
+  S.shop.role = null;
+  S.auth = new Auth(store);
+  try { S.persisted = (await navigator.storage?.persisted?.()) || (await navigator.storage?.persist?.()) || false; } catch { S.persisted = false; }
+  S.lang = localStorage.getItem('lang') || 'en'; S.idleMin = Number(localStorage.getItem('idleMin') ?? 5);
+  applyLang();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
   showLock();
-  window.__noctis = { get state() { return state; }, ui, render, unlock: () => unlock() }; // handy for debugging / tests
-})();
+}
+// Roman Urdu is written in English letters, so the layout is always left-to-right.
+function applyLang() { document.documentElement.lang = S.lang === 'ur' ? 'ur-Latn' : 'en'; document.documentElement.dir = 'ltr'; }
+
+// ---------- login screen (Username + PIN) ----------
+async function showLock() {
+  clearTimeout(idleTimer); closeSheet();
+  S.shop.role = null; S.user = null;
+  root.innerHTML = loginHtml({ setup: !(await S.auth.isSetUp()) });
+  $('#langBtn').onclick = () => { setLang(S.lang === 'en' ? 'ur' : 'en'); showLock(); };
+  $('#themeBtn').onclick = () => toggleTheme(browserEnv());
+  const pin = $('#loginPin'); if (pin) pin.onkeydown = (e) => { if (e.key === 'Enter') acts.loginSubmit(); };
+}
+window.addEventListener('app:login', (e) => { S.user = e.detail; S.shop.role = e.detail.role; startApp(); });
+window.addEventListener('app:lock', showLock);
+
+// ---------- shell ----------
+function setLang(l) { S.lang = l; localStorage.setItem('lang', l); applyLang(); }
+window.addEventListener('app:lang', (e) => { setLang(e.detail); if (S.shop.role) startApp(); });
+const themeIcon = () => (getTheme(browserEnv()) === 'dark' ? '☀' : '🌙');
+window.addEventListener('app:theme', () => { const b = $('#themeTop'); if (b) b.textContent = themeIcon(); });
+
+function navItems() {
+  const a = isAdmin();
+  return [['#/', '🏠', t('home')], ['#/sell', '🛒', t('sell')], ['#/khata', '📒', t('khata_entry')], ['#/items', '📦', t('items')], ['#/sales', '🧾', t('sales')], ['#/customers', '👥', t('customers')], ['#/rentals', '🪑', t('rentals')],
+    ...(a ? [['#/suppliers', '🚚', t('suppliers')], ['#/expenses', '💸', t('expenses')], ['#/bin', '🗑', t('recycle_bin')]] : []), ['#/reports', '📊', t('reports')], ['#/settings', '⚙', t('settings')]];
+}
+function startApp() {
+  const items = navItems(), primary = items.slice(0, 4);
+  root.innerHTML = `<div class="shell"><aside class="side"><div class="logo"><img class="side-logo" src="img/logo-256.png" alt=""><span>${esc(S.shop.cfg.shopName)}</span></div>${items.map(([h, i, l]) => `<a href="${h}" data-nav="${h}">${i} <span>${l}</span></a>`).join('')}</aside>
+    <div class="content"><header class="top"><img class="top-logo" src="img/logo-256.png" alt=""><b class="ttl">${esc(S.shop.cfg.shopName)}</b><span class="grow"></span><span class="role" title="${t('logged_in_as')}">${S.user?.role === 'admin' ? '👑' : '🧑‍💼'} ${esc(S.user?.username || '')}</span>
+      <button class="ic" id="themeTop" title="Light / Dark">${themeIcon()}</button><button class="ic" id="langTop">${S.lang === 'en' ? 'RU' : 'EN'}</button><button class="ic" id="lockTop" title="${t('logout')}">🔒</button></header>
+      <main id="main"></main></div>
+    <nav class="bottom">${primary.map(([h, i, l]) => `<a href="${h}" data-nav="${h}">${i}<span>${l}</span></a>`).join('')}<a href="#" data-act="moreMenu">☰<span>${t('more')}</span></a></nav></div>`;
+  $('#lockTop').onclick = showLock;
+  $('#themeTop').onclick = () => { toggleTheme(browserEnv()); window.dispatchEvent(new Event('app:theme')); };
+  $('#langTop').onclick = () => { setLang(S.lang === 'en' ? 'ur' : 'en'); startApp(); };
+  render(); resetIdle();
+}
+acts.moreMenu = (el, e) => {
+  e?.preventDefault();
+  openSheet(`<h3>${t('menu')}</h3><div class="grid menu">${navItems().map(([h, i, l]) => `<a class="btn" href="${h}" data-act="closeSheet">${i} ${l}</a>`).join('')}</div>`);
+};
+
+async function render() {
+  const main = $('#main'); if (!main || !S.shop.role) return;
+  const [path, qs = ''] = location.hash.replace(/^#\/?/, '').split('?'), q = new URLSearchParams(qs);
+  document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('on', (a.dataset.nav === '#/' ? path === '' : path.startsWith(a.dataset.nav.slice(2)))));
+  if (!isAdmin() && ADMIN_ONLY.test(path)) { toast(t('admin_only'), { error: true }); location.hash = '#/'; return; }
+  const scroll = window.scrollY;
+  try {
+    for (const [re, fn] of ROUTES) { const m = re.exec(path); if (m) { main.innerHTML = await fn(m, q); window.scrollTo(0, scroll); return; } }
+    main.innerHTML = `<p class="empty">404</p>`;
+  } catch (e) { main.innerHTML = `<p class="bad">${esc(e.message)}</p>`; console.error(e); }
+}
+window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
+window.addEventListener('app:refresh', render);
+
+// ---------- delegated events ----------
+const run = (table, key, el, ev) => { const f = table[el.dataset[key]]; if (f) { const r = f(el, ev); if (r && r.catch) r.catch((e) => toast(e.message, { error: true })); } };
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-act]'); resetIdle();
+  if (el) run(acts, 'act', el, e);
+  else if (e.target.id === 'sheet') closeSheet();
+});
+document.addEventListener('input', (e) => { const el = e.target.closest('[data-in]'); resetIdle(); if (el) run(ins, 'in', el, e); });
+document.addEventListener('change', (e) => { const el = e.target.closest('[data-chg]'); if (el) run(chg, 'chg', el, e); });
+document.addEventListener('keydown', resetIdle);
+
+// ---------- idle lock ----------
+function resetIdle() {
+  clearTimeout(idleTimer);
+  if (S.shop?.role && S.idleMin > 0) idleTimer = setTimeout(showLock, S.idleMin * 60000);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) S.hiddenAt = Date.now();
+  else if (S.shop?.role && S.idleMin > 0 && S.hiddenAt && Date.now() - S.hiddenAt > S.idleMin * 60000) showLock();
+});
+
+boot().catch((e) => { root.innerHTML = `<p class="bad" style="padding:20px">Startup error: ${esc(e.message)}</p>`; console.error(e); });
+void openSheet;
